@@ -84,8 +84,11 @@ export default {
       },
       fontFamily: {
         sans: ["var(--font-sans)"],
-        serif: ["var(--font-serif)"],
+        heading: ["var(--font-serif)"],
         mono: ["var(--font-mono)"],
+      },
+      maxWidth: {
+        prose: "65ch",
       },
       keyframes: {
         "accordion-down": {
