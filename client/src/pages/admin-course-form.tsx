@@ -14,6 +14,16 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { ArrowLeft, Loader2, Sparkles } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import type { Course, Tier, Module } from "@shared/types";
+
+interface CourseWithDetails extends Course {
+  tiers?: (Tier & { modules?: Module[] })[];
+}
+
+interface FetchContentResponse {
+  title: string;
+  content: string;
+}
 
 const courseSchema = z.object({
   title: z.string().min(3, "Title must be at least 3 characters"),
@@ -30,17 +40,17 @@ export default function AdminCourseForm() {
   const courseId = params?.id === "new" ? null : params?.id;
   const [generatingTiers, setGeneratingTiers] = useState(false);
 
-  const { data: course } = useQuery({
+  const { data: course } = useQuery<CourseWithDetails>({
     queryKey: ["/api/courses", courseId],
     enabled: !!courseId,
   });
 
-  const form = useForm({
+  const form = useForm<z.infer<typeof courseSchema>>({
     resolver: zodResolver(courseSchema),
     defaultValues: {
       title: course?.title || "",
       description: course?.description || "",
-      sourceType: course?.sourceType || "manual",
+      sourceType: (course?.sourceType as "manual" | "openstax" | "youtube" | "other") || "manual",
       sourceUrl: course?.sourceUrl || "",
       content: course?.content || "",
     },
@@ -49,12 +59,14 @@ export default function AdminCourseForm() {
   const saveMutation = useMutation({
     mutationFn: async (data: z.infer<typeof courseSchema>) => {
       if (courseId) {
-        return await apiRequest("PUT", `/api/courses/${courseId}`, data);
+        const res = await apiRequest("PUT", `/api/courses/${courseId}`, data);
+        return await res.json() as Course;
       } else {
-        return await apiRequest("POST", "/api/courses", data);
+        const res = await apiRequest("POST", "/api/courses", data);
+        return await res.json() as Course;
       }
     },
-    onSuccess: (data) => {
+    onSuccess: (data: Course) => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/courses"] });
       toast({
         title: courseId ? "Course updated" : "Course created",
@@ -95,9 +107,10 @@ export default function AdminCourseForm() {
 
   const fetchFromUrlMutation = useMutation({
     mutationFn: async (url: string) => {
-      return await apiRequest("POST", "/api/fetch-content", { url });
+      const res = await apiRequest("POST", "/api/fetch-content", { url });
+      return await res.json() as FetchContentResponse;
     },
-    onSuccess: (data) => {
+    onSuccess: (data: FetchContentResponse) => {
       form.setValue("content", data.content);
       form.setValue("title", data.title || form.getValues("title"));
       toast({
@@ -315,7 +328,7 @@ export default function AdminCourseForm() {
                   )}
                 </Button>
 
-                {course?.tiers?.length > 0 && (
+                {course?.tiers && course.tiers.length > 0 && (
                   <div className="mt-6 space-y-4">
                     <h3 className="font-semibold">Current Tiers</h3>
                     {course.tiers.map((tier: any) => (

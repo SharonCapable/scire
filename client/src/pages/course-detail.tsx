@@ -9,6 +9,11 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { BookOpen, CheckCircle2, Circle, PlayCircle } from "lucide-react";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import type { Course, Tier, Module, UserCourseEnrollment, UserProgress } from "@shared/types";
+
+interface CourseWithDetails extends Course {
+  tiers: (Tier & { modules: Module[] })[];
+}
 
 export default function CourseDetail() {
   const [, params] = useRoute("/course/:id");
@@ -16,18 +21,18 @@ export default function CourseDetail() {
   const { toast } = useToast();
   const courseId = params?.id;
 
-  const { data: course, isLoading } = useQuery({
+  const { data: course, isLoading } = useQuery<CourseWithDetails>({
     queryKey: ["/api/courses", courseId],
     enabled: !!courseId,
   });
 
-  const { data: enrollment } = useQuery({
+  const { data: enrollment } = useQuery<UserCourseEnrollment>({
     queryKey: ["/api/enrollments", courseId],
     enabled: !!courseId,
   });
 
-  const { data: progress } = useQuery({
-    queryKey: ["/api/progress", courseId],
+  const { data: progress } = useQuery<UserProgress[]>({
+    queryKey: [`/api/progress/${courseId}/details`],
     enabled: !!courseId && !!enrollment,
   });
 
@@ -65,8 +70,8 @@ export default function CourseDetail() {
 
   const tierLevelOrder = { start: 0, intermediate: 1, advanced: 2 };
   const sortedTiers = [...(course.tiers || [])].sort(
-    (a, b) => (tierLevelOrder[a.level as keyof typeof tierLevelOrder] || 0) - 
-             (tierLevelOrder[b.level as keyof typeof tierLevelOrder] || 0)
+    (a, b) => (tierLevelOrder[a.level as keyof typeof tierLevelOrder] || 0) -
+      (tierLevelOrder[b.level as keyof typeof tierLevelOrder] || 0)
   );
 
   const getModuleProgress = (moduleId: string) => {
@@ -77,6 +82,21 @@ export default function CourseDetail() {
     if (!tier.modules?.length) return 0;
     const completed = tier.modules.filter((m: any) => getModuleProgress(m.id)?.completed).length;
     return Math.round((completed / tier.modules.length) * 100);
+  };
+
+  const handleContinueLearning = () => {
+    for (const tier of sortedTiers) {
+      for (const module of tier.modules) {
+        const modProgress = getModuleProgress(module.id);
+        if (!modProgress?.completed) {
+          setLocation(`/learn/${module.id}`);
+          return;
+        }
+      }
+    }
+    if (sortedTiers.length > 0 && sortedTiers[0].modules.length > 0) {
+      setLocation(`/learn/${sortedTiers[0].modules[0].id}`);
+    }
   };
 
   return (
@@ -112,7 +132,13 @@ export default function CourseDetail() {
             <CardHeader className="gap-2 pb-4">
               <div className="flex items-center justify-between">
                 <CardTitle className="text-lg">Your Progress</CardTitle>
-                <Badge variant="default">Enrolled</Badge>
+                <div className="flex items-center gap-4">
+                  <Button onClick={handleContinueLearning} className="gap-2">
+                    <PlayCircle className="h-4 w-4" />
+                    Continue Learning
+                  </Button>
+                  <Badge variant="default">Enrolled</Badge>
+                </div>
               </div>
             </CardHeader>
           </Card>
@@ -121,7 +147,7 @@ export default function CourseDetail() {
 
       <div className="space-y-6">
         <h2 className="text-2xl font-bold font-heading">Learning Path</h2>
-        
+
         {sortedTiers.length === 0 ? (
           <Card className="p-8 text-center">
             <BookOpen className="h-12 w-12 text-muted-foreground mx-auto mb-4" />

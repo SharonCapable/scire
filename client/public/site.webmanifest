@@ -1,0 +1,22 @@
+{
+    "name": "SCIRE - AI-Powered Learning Platform",
+    "short_name": "SCIRE",
+    "description": "Intelligent adaptive learning powered by Google Gemini AI",
+    "icons": [
+        {
+            "src": "/android-chrome-192x192.png",
+            "sizes": "192x192",
+            "type": "image/png"
+        },
+        {
+            "src": "/android-chrome-512x512.png",
+            "sizes": "512x512",
+            "type": "image/png"
+        }
+    ],
+    "theme_color": "#6366f1",
+    "background_color": "#ffffff",
+    "display": "standalone",
+    "start_url": "/",
+    "scope": "/"
+}

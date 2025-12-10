@@ -2,13 +2,20 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { seedDatabase } from "./seed";
-import { generateCourseTiers, generateFlashcards, validateUnderstanding, curateCoursesForInterests } from "./openai";
-import { z } from "zod";
-import { insertCourseSchema, insertUserInterestSchema, insertUserProgressSchema, insertFlashcardProgressSchema, insertUnderstandingCheckSchema, insertUserCourseEnrollmentSchema } from "@shared/schema";
+import {
+  generateCourseTiers,
+  generateFlashcards,
+  validateUnderstanding,
+  curateCoursesForInterests,
+  generateCourseStructure,
+  generateModuleContent,
+  generateQuiz,
+  generateUnderstandingPrompt
+} from "./gemini";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   await seedDatabase();
-  
+
   app.get("/api/courses", async (req, res) => {
     try {
       const courses = await storage.getAllCourses();
@@ -36,33 +43,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!admin) {
         return res.status(500).json({ error: "Admin user not found" });
       }
-      
-      const data = insertCourseSchema.parse({
+
+      const data = {
         ...req.body,
         createdBy: admin.id,
-      });
+      };
       const course = await storage.createCourse(data);
       res.json(course);
     } catch (error) {
-      if (error instanceof z.ZodError) {
-        return res.status(400).json({ error: error.errors });
-      }
       res.status(500).json({ error: "Failed to create course" });
     }
   });
 
   app.put("/api/courses/:id", async (req, res) => {
     try {
-      const data = insertCourseSchema.partial().parse(req.body);
+      const data = req.body;
       const course = await storage.updateCourse(req.params.id, data);
       if (!course) {
         return res.status(404).json({ error: "Course not found" });
       }
       res.json(course);
     } catch (error) {
-      if (error instanceof z.ZodError) {
-        return res.status(400).json({ error: error.errors });
-      }
       res.status(500).json({ error: "Failed to update course" });
     }
   });
@@ -175,17 +176,183 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/interests", async (req, res) => {
     try {
       const userId = "user1";
-      const data = insertUserInterestSchema.parse({
+
+      const data = {
         ...req.body,
         userId,
-      });
+      };
       const interest = await storage.createOrUpdateUserInterest(data);
       res.json(interest);
     } catch (error) {
-      if (error instanceof z.ZodError) {
-        return res.status(400).json({ error: error.errors });
-      }
       res.status(500).json({ error: "Failed to save interests" });
+    }
+  });
+
+  app.post("/api/recommendations", async (req, res) => {
+    try {
+      const { topics, learningGoals, skillLevel } = req.body;
+
+      if (!topics || topics.length === 0) {
+        return res.status(400).json({ error: "Topics are required" });
+      }
+
+      // Get all courses from database
+      const courses = await storage.getAllCourses();
+
+      if (courses.length === 0) {
+        return res.json({
+          recommendations: [],
+          message: "No courses available yet. Try adding some interests and we'll generate personalized courses for you!"
+        });
+      }
+
+      // Check if we have a relevant course for the primary topic
+      const primaryTopic = topics[0];
+      const hasRelevantCourse = courses.some(c => c.title.toLowerCase().includes(primaryTopic.toLowerCase()));
+
+      if (!hasRelevantCourse) {
+        console.log(`Generating new course for topic: ${primaryTopic}`);
+        try {
+          // Generate structure
+          const structure = await generateCourseStructure(primaryTopic, learningGoals || "General knowledge");
+
+          // Create course
+          const newCourse = await storage.createCourse({
+            title: structure.title,
+            description: structure.description,
+            sourceType: "ai_generated",
+            content: "AI Generated Course",
+            createdBy: "system"
+          });
+
+          // Create tiers & modules
+          const tierLevelOrder: { [key: string]: number } = { start: 0, intermediate: 1, advanced: 2 };
+
+          for (const tierData of structure.tiers) {
+            const tier = await storage.createTier({
+              courseId: newCourse.id,
+              level: tierData.level,
+              title: tierData.title,
+              description: tierData.description,
+              order: tierLevelOrder[tierData.level] || 0
+            });
+
+            for (let i = 0; i < tierData.modules.length; i++) {
+              const modData = tierData.modules[i];
+
+              // Generate content for START tier immediately, others placeholder
+              let content = "Content is being generated. Please check back later.";
+              if (tierData.level === 'start') {
+                content = await generateModuleContent(modData.title, modData.summary, structure.title);
+              }
+
+              const module = await storage.createModule({
+                tierId: tier.id,
+                title: modData.title,
+                content: content,
+                order: i,
+                estimatedMinutes: modData.estimatedMinutes
+              });
+
+              // Generate assessments for START tier
+              if (tierData.level === 'start') {
+                const quiz = await generateQuiz(content, modData.title);
+                await storage.createAssessment({
+                  moduleId: module.id,
+                  type: "quiz",
+                  title: "Quiz",
+                  questions: quiz,
+                  order: 0
+                });
+
+                const check = await generateUnderstandingPrompt(content, modData.title);
+                await storage.createAssessment({
+                  moduleId: module.id,
+                  type: "understanding",
+                  title: "Check",
+                  prompt: check.prompt,
+                  rubric: check.rubric,
+                  order: 1
+                });
+              }
+            }
+          }
+
+          // Return the new course
+          return res.json({
+            recommendations: [{
+              courseId: newCourse.id,
+              course: newCourse,
+              reason: "Custom generated course for your interest",
+              suggestedTier: "start"
+            }]
+          });
+
+        } catch (error) {
+          console.error("Failed to generate course:", error);
+          // Fallback to standard curation if generation fails
+        }
+      }
+
+      try {
+        // Use AI to intelligently curate courses
+        const recommendations = await curateCoursesForInterests(
+          topics,
+          learningGoals || "General learning",
+          courses
+        );
+
+        // If AI returns no recommendations, suggest course generation
+        if (!recommendations || recommendations.length === 0) {
+          return res.json({
+            recommendations: [],
+            suggestGeneration: true,
+            message: `We couldn't find existing courses matching "${topics.join(', ')}". Would you like us to generate a personalized learning path for you?`
+          });
+        }
+
+        res.json({
+          recommendations,
+          message: `Found ${recommendations.length} courses curated for your interests and skill level`
+        });
+      } catch (aiError) {
+        console.error("AI recommendation failed:", aiError);
+
+        // Fallback: Simple keyword matching with skill level consideration
+        const fallbackRecs = courses
+          .map(course => {
+            let score = 0;
+            const searchText = `${course.title} ${course.description}`.toLowerCase();
+
+            for (const topic of topics) {
+              if (searchText.includes(topic.toLowerCase())) {
+                score += 10;
+              }
+            }
+
+            return score > 0 ? {
+              courseId: course.id,
+              course: {
+                id: course.id,
+                title: course.title,
+                description: course.description,
+                sourceType: course.sourceType
+              },
+              reason: `Matches your interest in ${topics.join(', ')}`,
+              suggestedTier: skillLevel === 'beginner' ? 'start' : skillLevel === 'advanced' ? 'advanced' : 'intermediate'
+            } : null;
+          })
+          .filter(r => r !== null)
+          .slice(0, 10);
+
+        res.json({
+          recommendations: fallbackRecs,
+          message: "Recommendations based on keyword matching (AI temporarily unavailable)"
+        });
+      }
+    } catch (error) {
+      console.error("Recommendations error:", error);
+      res.status(500).json({ error: "Failed to generate recommendations" });
     }
   });
 
@@ -193,13 +360,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const userId = "user1";
       const { courseId } = req.body;
-      
+
       const existing = await storage.getEnrollment(userId, courseId);
       if (existing) {
         return res.json(existing);
       }
 
-      const enrollment = await storage.createEnrollment({ userId, courseId });
+      const enrollment = await storage.enrollUserInCourse({ userId, courseId });
       res.json(enrollment);
     } catch (error) {
       res.status(500).json({ error: "Failed to enroll in course" });
@@ -219,10 +386,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/progress/:courseId", async (req, res) => {
     try {
       const userId = "user1";
-      const progress = await storage.getUserProgressForCourse(userId, req.params.courseId);
-      res.json(progress);
+      const progressPercent = await storage.getCourseProgress(userId, req.params.courseId);
+      res.json(progressPercent);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch progress" });
+    }
+  });
+
+  app.get("/api/progress/:courseId/details", async (req, res) => {
+    try {
+      const userId = "user1";
+      const details = await storage.getCourseProgressDetails(userId, req.params.courseId);
+      res.json(details);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch progress details" });
     }
   });
 
@@ -239,17 +416,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/progress/:moduleId", async (req, res) => {
     try {
       const userId = "user1";
-      const data = insertUserProgressSchema.parse({
+
+      const data = {
         ...req.body,
         userId,
         moduleId: req.params.moduleId,
-      });
-      const progress = await storage.createOrUpdateUserProgress(data);
+      };
+      const progress = await storage.updateUserProgress(data);
       res.json(progress);
     } catch (error) {
-      if (error instanceof z.ZodError) {
-        return res.status(400).json({ error: error.errors });
-      }
       res.status(500).json({ error: "Failed to update progress" });
     }
   });
@@ -260,29 +435,64 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { flashcardId, correct } = req.body;
 
       const existing = await storage.getFlashcardProgress(userId, flashcardId);
-      
-      if (existing) {
-        const updated = await storage.updateFlashcardProgress(existing.id, {
-          correct: correct ? existing.correct + 1 : existing.correct,
-          incorrect: !correct ? existing.incorrect + 1 : existing.incorrect,
-          lastReviewed: new Date(),
-        });
-        return res.json(updated);
-      }
 
-      const progress = await storage.createFlashcardProgress({
+      const flashcardProgress = await storage.updateFlashcardProgress({
         userId,
         flashcardId,
-        correct: correct ? 1 : 0,
-        incorrect: correct ? 0 : 1,
+        correct: existing ? (correct ? existing.correct + 1 : existing.correct) : (correct ? 1 : 0),
+        incorrect: existing ? (!correct ? existing.incorrect + 1 : existing.incorrect) : (!correct ? 1 : 0),
         lastReviewed: new Date(),
       });
-      res.json(progress);
+      res.json(flashcardProgress);
     } catch (error) {
       res.status(500).json({ error: "Failed to record flashcard progress" });
     }
   });
 
+  // Assessment Routes
+  app.get("/api/modules/:moduleId/assessments", async (req, res) => {
+    try {
+      const assessments = await storage.getAssessmentsByModule(req.params.moduleId);
+      res.json(assessments);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch assessments" });
+    }
+  });
+
+  app.post("/api/modules/:moduleId/validate", async (req, res) => {
+    try {
+      const { explanation } = req.body;
+      const moduleId = req.params.moduleId;
+      const userId = "user1"; // TODO: Get from auth
+
+      const module = await storage.getModule(moduleId);
+      if (!module) {
+        return res.status(404).json({ error: "Module not found" });
+      }
+
+      const validation = await validateUnderstanding(module.content, explanation);
+
+      const check = await storage.createUnderstandingCheck({
+        userId,
+        moduleId,
+        userExplanation: explanation,
+        aiFeedback: validation.feedback,
+        score: validation.score,
+        areasForImprovement: validation.areasForImprovement,
+      });
+
+      res.json({
+        score: check.score,
+        feedback: check.aiFeedback,
+        areasForImprovement: check.areasForImprovement
+      });
+    } catch (error: any) {
+      console.error("Understanding check error:", error);
+      res.status(500).json({ error: error?.message || "Failed to validate understanding" });
+    }
+  });
+
+  // Legacy endpoint - keep for backward compatibility if needed, or remove
   app.post("/api/understanding-check", async (req, res) => {
     try {
       const userId = "user1";
@@ -308,6 +518,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error: any) {
       console.error("Understanding check error:", error);
       res.status(500).json({ error: error?.message || "Failed to validate understanding" });
+    }
+  });
+
+  // User Dashboard Routes
+  app.get("/api/user/enrolled-courses", async (req: any, res) => {
+    try {
+      const userId = req.user?.id || "user1"; // Fallback for development
+      const enrollments = await storage.getUserEnrollments(userId);
+      res.json(enrollments);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch enrolled courses" });
+    }
+  });
+
+  app.get("/api/user/stats", async (req: any, res) => {
+    try {
+      const userId = req.user?.id || "user1"; // Fallback for development
+      const stats = await storage.getUserStats(userId);
+      res.json(stats);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch user stats" });
     }
   });
 

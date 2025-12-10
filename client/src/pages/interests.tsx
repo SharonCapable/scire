@@ -14,6 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { X, Loader2 } from "lucide-react";
+import type { UserInterest } from "@shared/types";
 
 const interestSchema = z.object({
   learningGoals: z.string().min(10, "Please describe your learning goals (at least 10 characters)"),
@@ -26,32 +27,52 @@ export default function Interests() {
   const [topics, setTopics] = useState<string[]>([]);
   const [topicInput, setTopicInput] = useState("");
 
-  const { data: existingInterests } = useQuery({
+  const { data: existingInterests } = useQuery<UserInterest>({
     queryKey: ["/api/interests"],
   });
 
-  const form = useForm({
+  const form = useForm<z.infer<typeof interestSchema>>({
     resolver: zodResolver(interestSchema),
     defaultValues: {
       learningGoals: existingInterests?.learningGoals || "",
-      preferredPace: existingInterests?.preferredPace || "moderate",
+      preferredPace: (existingInterests?.preferredPace as "slow" | "moderate" | "fast") || "moderate",
     },
   });
 
   const saveMutation = useMutation({
     mutationFn: async (data: z.infer<typeof interestSchema>) => {
-      return await apiRequest("POST", "/api/interests", {
+      // Save interests first
+      await apiRequest("POST", "/api/interests", {
         topics,
         ...data,
       });
+
+      // Then get recommendations
+      const recsResponse = await apiRequest("POST", "/api/recommendations", {
+        topics,
+        learningGoals: data.learningGoals,
+      });
+
+      return recsResponse;
     },
-    onSuccess: () => {
+    onSuccess: (data: any) => {
       queryClient.invalidateQueries({ queryKey: ["/api/interests"] });
+
+      const recCount = data?.recommendations?.length || 0;
       toast({
         title: "Interests saved!",
-        description: "We'll curate personalized course recommendations for you.",
+        description: `We found ${recCount} course${recCount !== 1 ? 's' : ''} matching your interests.`,
       });
-      setLocation("/courses");
+
+      // Redirect to the top recommended course to provide a "Classroom" feel
+      setTimeout(() => {
+        const firstRec = data?.recommendations?.[0];
+        if (firstRec?.courseId) {
+          setLocation(`/course/${firstRec.courseId}`);
+        } else {
+          setLocation("/courses");
+        }
+      }, 1500);
     },
     onError: () => {
       toast({

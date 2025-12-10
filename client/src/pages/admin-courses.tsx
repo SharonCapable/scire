@@ -18,11 +18,17 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import type { Course } from "@shared/types";
+
+interface CourseWithStats extends Course {
+  tierCount: number;
+  moduleCount: number;
+}
 
 export default function AdminCourses() {
   const { toast } = useToast();
 
-  const { data: courses, isLoading } = useQuery({
+  const { data: courses, isLoading } = useQuery<CourseWithStats[]>({
     queryKey: ["/api/admin/courses"],
   });
 

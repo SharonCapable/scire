@@ -4,13 +4,15 @@ import { useRoute, useLocation } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
-import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { ArrowLeft, ArrowRight, CheckCircle2, Loader2, RotateCcw } from "lucide-react";
+import { ArrowLeft, CheckCircle2, RotateCcw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import type { Module, Flashcard, UserProgress, Assessment } from "@shared/types";
+import { QuizComponent } from "@/components/assessment/QuizComponent";
+import { UnderstandingCheckComponent } from "@/components/assessment/UnderstandingCheckComponent";
 
 export default function Learn() {
   const [, params] = useRoute("/learn/:id");
@@ -20,20 +22,23 @@ export default function Learn() {
 
   const [currentFlashcardIndex, setCurrentFlashcardIndex] = useState(0);
   const [showAnswer, setShowAnswer] = useState(false);
-  const [understanding, setUnderstanding] = useState("");
-  const [aiResponse, setAiResponse] = useState<any>(null);
 
-  const { data: module, isLoading: moduleLoading } = useQuery({
+  const { data: module, isLoading: moduleLoading } = useQuery<Module>({
     queryKey: ["/api/modules", moduleId],
     enabled: !!moduleId,
   });
 
-  const { data: flashcards, isLoading: flashcardsLoading } = useQuery({
+  const { data: flashcards, isLoading: flashcardsLoading } = useQuery<Flashcard[]>({
     queryKey: ["/api/flashcards", moduleId],
     enabled: !!moduleId,
   });
 
-  const { data: userProgress } = useQuery({
+  const { data: assessments, isLoading: assessmentsLoading } = useQuery<Assessment[]>({
+    queryKey: [`/api/modules/${moduleId}/assessments`],
+    enabled: !!moduleId,
+  });
+
+  const { data: userProgress } = useQuery<UserProgress>({
     queryKey: ["/api/progress/module", moduleId],
     enabled: !!moduleId,
   });
@@ -44,22 +49,6 @@ export default function Learn() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/progress/module", moduleId] });
-    },
-  });
-
-  const submitUnderstandingMutation = useMutation({
-    mutationFn: async (explanation: string) => {
-      return await apiRequest("POST", "/api/understanding-check", {
-        moduleId,
-        userExplanation: explanation,
-      });
-    },
-    onSuccess: (data) => {
-      setAiResponse(data);
-      toast({
-        title: "Assessment complete!",
-        description: "Review your feedback below.",
-      });
     },
   });
 
@@ -77,7 +66,7 @@ export default function Learn() {
         correct,
       });
     }
-    
+
     if (currentFlashcardIndex < (flashcards?.length || 0) - 1) {
       setCurrentFlashcardIndex(currentFlashcardIndex + 1);
       setShowAnswer(false);
@@ -114,6 +103,9 @@ export default function Learn() {
   const progressPercent = userProgress?.progressPercent || 0;
   const currentFlashcard = flashcards?.[currentFlashcardIndex];
 
+  const quiz = assessments?.find(a => a.type === 'quiz');
+  const understandingCheck = assessments?.find(a => a.type === 'understanding');
+
   return (
     <div className="max-w-4xl mx-auto px-4 py-8">
       <div className="mb-6">
@@ -127,11 +119,11 @@ export default function Learn() {
           <ArrowLeft className="mr-2 h-4 w-4" />
           Back
         </Button>
-        
+
         <h1 className="text-3xl font-bold mb-2 font-heading" data-testid="text-module-title">
           {module.title}
         </h1>
-        
+
         <div className="flex items-center gap-4">
           <div className="flex-1">
             <div className="flex items-center justify-between mb-1">
@@ -145,12 +137,13 @@ export default function Learn() {
       </div>
 
       <Tabs defaultValue="content" className="space-y-6">
-        <TabsList className="grid w-full grid-cols-3">
+        <TabsList className="grid w-full grid-cols-4">
           <TabsTrigger value="content" data-testid="tab-content">Content</TabsTrigger>
           <TabsTrigger value="flashcards" data-testid="tab-flashcards">
-            Flashcards {flashcards?.length > 0 && `(${flashcards.length})`}
+            Flashcards {(flashcards?.length || 0) > 0 && `(${flashcards?.length})`}
           </TabsTrigger>
-          <TabsTrigger value="understanding" data-testid="tab-understanding">Understanding Check</TabsTrigger>
+          <TabsTrigger value="quiz" data-testid="tab-quiz">Quiz</TabsTrigger>
+          <TabsTrigger value="understanding" data-testid="tab-understanding">Check</TabsTrigger>
         </TabsList>
 
         <TabsContent value="content" className="space-y-6">
@@ -252,65 +245,42 @@ export default function Learn() {
           )}
         </TabsContent>
 
-        <TabsContent value="understanding" className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Explain Your Understanding</CardTitle>
-              <p className="text-sm text-muted-foreground">
-                Describe what you learned from this module in your own words. AI will validate your understanding.
-              </p>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <Textarea
-                placeholder="Write your explanation here..."
-                value={understanding}
-                onChange={(e) => setUnderstanding(e.target.value)}
-                className="min-h-32"
-                data-testid="input-understanding"
-              />
-              <Button
-                onClick={() => submitUnderstandingMutation.mutate(understanding)}
-                disabled={!understanding.trim() || submitUnderstandingMutation.isPending}
-                data-testid="button-submit-understanding"
-              >
-                {submitUnderstandingMutation.isPending && (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                )}
-                Submit for Feedback
-              </Button>
-            </CardContent>
-          </Card>
-
-          {aiResponse && (
-            <Card>
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <CardTitle>AI Feedback</CardTitle>
-                  <Badge variant={aiResponse.score >= 70 ? "default" : "secondary"}>
-                    Score: {aiResponse.score}/100
-                  </Badge>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div>
-                  <h4 className="font-semibold mb-2">Feedback</h4>
-                  <p className="text-sm leading-relaxed text-muted-foreground">
-                    {aiResponse.aiFeedback}
-                  </p>
-                </div>
-
-                {aiResponse.areasForImprovement?.length > 0 && (
-                  <div>
-                    <h4 className="font-semibold mb-2">Areas for Improvement</h4>
-                    <ul className="list-disc list-inside space-y-1 text-sm text-muted-foreground">
-                      {aiResponse.areasForImprovement.map((area: string, i: number) => (
-                        <li key={i}>{area}</li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-              </CardContent>
+        <TabsContent value="quiz" className="space-y-6">
+          {assessmentsLoading ? (
+            <Skeleton className="h-96" />
+          ) : quiz ? (
+            <QuizComponent
+              questions={quiz.questions || []}
+              onComplete={(score) => {
+                toast({
+                  title: "Quiz Completed!",
+                  description: `You scored ${score}%. Great job!`,
+                });
+                // Optionally mark progress here
+              }}
+            />
+          ) : (
+            <Card className="p-12 text-center">
+              <p className="text-muted-foreground">No quiz available for this module yet.</p>
             </Card>
+          )}
+        </TabsContent>
+
+        <TabsContent value="understanding" className="space-y-6">
+          {assessmentsLoading ? (
+            <Skeleton className="h-96" />
+          ) : (
+            <UnderstandingCheckComponent
+              moduleId={moduleId!}
+              prompt={understandingCheck?.prompt || "Explain the key concepts from this module in your own words."}
+              onComplete={(score) => {
+                toast({
+                  title: "Assessment Passed!",
+                  description: `You scored ${score}/100. Module marked as complete!`,
+                });
+                handleCompleteModule();
+              }}
+            />
           )}
         </TabsContent>
       </Tabs>

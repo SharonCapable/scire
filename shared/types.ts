@@ -1,0 +1,254 @@
+// Generic Timestamp interface to avoid firebase-admin dependency in shared code
+export interface Timestamp {
+    seconds: number;
+    nanoseconds: number;
+    toDate(): Date;
+    toMillis(): number;
+}
+
+// User types
+export interface User {
+    id: string;
+    username: string;
+    password?: string; // Optional for Google OAuth users
+    email?: string;
+    name?: string;
+    picture?: string;
+    googleId?: string;
+    provider: 'local' | 'google';
+    isAdmin: boolean;
+    createdAt: Timestamp;
+}
+
+export interface InsertUser {
+    username: string;
+    password?: string;
+    email?: string;
+    name?: string;
+    picture?: string;
+    googleId?: string;
+    provider?: 'local' | 'google';
+    isAdmin?: boolean;
+}
+
+// Course types
+export interface Course {
+    id: string;
+    title: string;
+    description: string;
+    sourceType: string;
+    sourceUrl?: string;
+    content: string;
+    createdBy: string;
+    createdAt: Timestamp;
+}
+
+export interface InsertCourse {
+    title: string;
+    description: string;
+    sourceType: string;
+    sourceUrl?: string;
+    content: string;
+    createdBy: string;
+}
+
+// Tier types
+export interface Tier {
+    id: string;
+    courseId: string;
+    level: 'start' | 'intermediate' | 'advanced';
+    order: number;
+    title: string;
+    description?: string;
+    createdAt: Timestamp;
+}
+
+export interface InsertTier {
+    courseId: string;
+    level: string;
+    order: number;
+    title: string;
+    description?: string;
+}
+
+// Module types
+export interface Module {
+    id: string;
+    tierId: string;
+    title: string;
+    content: string;
+    order: number;
+    estimatedMinutes: number;
+    createdAt: Timestamp;
+}
+
+export interface InsertModule {
+    tierId: string;
+    title: string;
+    content: string;
+    order: number;
+    estimatedMinutes?: number;
+}
+
+// Flashcard types
+export interface Flashcard {
+    id: string;
+    moduleId: string;
+    question: string;
+    answer: string;
+    order: number;
+    createdAt: Timestamp;
+}
+
+export interface InsertFlashcard {
+    moduleId: string;
+    question: string;
+    answer: string;
+    order: number;
+}
+
+// Assessment types
+export type AssessmentType = 'quiz' | 'understanding';
+
+export interface QuizQuestion {
+    id: string;
+    question: string;
+    options: string[];
+    correctAnswer: number; // index of the correct option
+    explanation?: string;
+}
+
+export interface Assessment {
+    id: string;
+    moduleId: string;
+    type: AssessmentType;
+    title: string;
+    // For Quiz
+    questions?: QuizQuestion[];
+    // For Understanding Check
+    prompt?: string;
+    rubric?: string; // Guidelines for AI evaluation
+    order: number;
+    createdAt: Timestamp;
+}
+
+export interface InsertAssessment {
+    moduleId: string;
+    type: AssessmentType;
+    title: string;
+    questions?: QuizQuestion[];
+    prompt?: string;
+    rubric?: string;
+    order: number;
+}
+
+export interface UserAssessmentSubmission {
+    id: string;
+    userId: string;
+    assessmentId: string;
+    // For Quiz: array of selected indices
+    // For Understanding: the user's text response
+    response: number[] | string;
+    score: number; // 0-100
+    feedback?: string;
+    completedAt: Timestamp;
+}
+
+// User Interest types
+export interface UserInterest {
+    id: string;
+    userId: string;
+    topics: string[];
+    learningGoals: string;
+    preferredPace: string;
+    createdAt: Timestamp;
+    updatedAt: Timestamp;
+}
+
+export interface InsertUserInterest {
+    userId: string;
+    topics: string[];
+    learningGoals: string;
+    preferredPace: string;
+}
+
+// User Progress types
+export interface UserProgress {
+    id: string;
+    userId: string;
+    moduleId: string;
+    completed: boolean;
+    completedAt?: Timestamp;
+    progressPercent: number;
+    timeSpentMinutes: number;
+    createdAt: Timestamp;
+    updatedAt: Timestamp;
+}
+
+export interface InsertUserProgress {
+    userId: string;
+    moduleId: string;
+    completed?: boolean;
+    completedAt?: Date;
+    progressPercent?: number;
+    timeSpentMinutes?: number;
+}
+
+// Flashcard Progress types
+export interface FlashcardProgress {
+    id: string;
+    userId: string;
+    flashcardId: string;
+    correct: number;
+    incorrect: number;
+    lastReviewed?: Timestamp;
+    nextReview?: Timestamp;
+    easeFactor: number;
+    createdAt: Timestamp;
+}
+
+export interface InsertFlashcardProgress {
+    userId: string;
+    flashcardId: string;
+    correct?: number;
+    incorrect?: number;
+    lastReviewed?: Date;
+    nextReview?: Date;
+    easeFactor?: number;
+}
+
+// Understanding Check types
+export interface UnderstandingCheck {
+    id: string;
+    userId: string;
+    moduleId: string;
+    userExplanation: string;
+    aiFeedback: string;
+    score: number;
+    areasForImprovement?: string[];
+    createdAt: Timestamp;
+}
+
+export interface InsertUnderstandingCheck {
+    userId: string;
+    moduleId: string;
+    userExplanation: string;
+    aiFeedback: string;
+    score: number;
+    areasForImprovement?: string[];
+}
+
+// User Course Enrollment types
+export interface UserCourseEnrollment {
+    id: string;
+    userId: string;
+    courseId: string;
+    enrolledAt: Timestamp;
+    currentTierId?: string;
+}
+
+export interface InsertUserCourseEnrollment {
+    userId: string;
+    courseId: string;
+    currentTierId?: string;
+}

@@ -1,278 +1,550 @@
-import {
-  users,
-  courses,
-  tiers,
-  modules,
-  flashcards,
-  userInterests,
-  userProgress,
-  flashcardProgress,
-  understandingChecks,
-  userCourseEnrollments,
-  type User,
-  type InsertUser,
-  type Course,
-  type InsertCourse,
-  type Tier,
-  type InsertTier,
-  type Module,
-  type InsertModule,
-  type Flashcard,
-  type InsertFlashcard,
-  type UserInterest,
-  type InsertUserInterest,
-  type UserProgress,
-  type InsertUserProgress,
-  type FlashcardProgress,
-  type InsertFlashcardProgress,
-  type UnderstandingCheck,
-  type InsertUnderstandingCheck,
-  type UserCourseEnrollment,
-  type InsertUserCourseEnrollment,
-} from "@shared/schema";
-import { db } from "./db";
-import { eq, desc, and, sql } from "drizzle-orm";
+import { db } from './firebase';
+import { Timestamp, FieldValue } from 'firebase-admin/firestore';
+import type {
+  User, InsertUser,
+  Course, InsertCourse,
+  Tier, InsertTier,
+  Module, InsertModule,
+  Flashcard, InsertFlashcard,
+  UserInterest, InsertUserInterest,
+  UserProgress, InsertUserProgress,
+  FlashcardProgress, InsertFlashcardProgress,
+  UnderstandingCheck, InsertUnderstandingCheck,
+  UserCourseEnrollment, InsertUserCourseEnrollment,
+  Assessment, InsertAssessment,
+  UserAssessmentSubmission,
+} from '@shared/types';
 
 export interface IStorage {
+  // User methods
   getUser(id: string): Promise<User | undefined>;
+  getUserById(id: string): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
+  getUserByEmail(email: string): Promise<User | undefined>;
+  getUserByGoogleId(googleId: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
-  
-  getCourse(id: string): Promise<any | undefined>;
+  updateUser(id: string, data: Partial<InsertUser>): Promise<User | undefined>;
+
+  // Course methods
+  getCourse(id: string): Promise<Course | undefined>;
   getCourseWithDetails(id: string): Promise<any | undefined>;
   getAllCourses(): Promise<any[]>;
   createCourse(course: InsertCourse): Promise<Course>;
   updateCourse(id: string, data: Partial<InsertCourse>): Promise<Course | undefined>;
   deleteCourse(id: string): Promise<void>;
-  
+
+  // Tier methods
   createTier(tier: InsertTier): Promise<Tier>;
   getTiersByCourse(courseId: string): Promise<Tier[]>;
-  
+
+  // Module methods
   createModule(module: InsertModule): Promise<Module>;
   getModule(id: string): Promise<Module | undefined>;
   getModulesByTier(tierId: string): Promise<Module[]>;
-  
+
+  // Flashcard methods
   createFlashcard(flashcard: InsertFlashcard): Promise<Flashcard>;
   getFlashcardsByModule(moduleId: string): Promise<Flashcard[]>;
-  
+
+  // Assessment methods
+  createAssessment(assessment: InsertAssessment): Promise<Assessment>;
+  getAssessmentsByModule(moduleId: string): Promise<Assessment[]>;
+  createAssessmentSubmission(submission: Omit<UserAssessmentSubmission, 'id' | 'completedAt'>): Promise<UserAssessmentSubmission>;
+  getAssessmentSubmissions(userId: string, assessmentId: string): Promise<UserAssessmentSubmission[]>;
+
+  // User Interest methods
   getUserInterest(userId: string): Promise<UserInterest | undefined>;
   createOrUpdateUserInterest(interest: InsertUserInterest): Promise<UserInterest>;
-  
+
+  // Progress methods
   getUserProgress(userId: string, moduleId: string): Promise<UserProgress | undefined>;
-  getUserProgressForCourse(userId: string, courseId: string): Promise<UserProgress[]>;
-  createOrUpdateUserProgress(progress: InsertUserProgress): Promise<UserProgress>;
-  
-  createFlashcardProgress(progress: InsertFlashcardProgress): Promise<FlashcardProgress>;
+  updateUserProgress(progress: InsertUserProgress): Promise<UserProgress>;
+  getCourseProgress(userId: string, courseId: string): Promise<number>;
+  getCourseProgressDetails(userId: string, courseId: string): Promise<UserProgress[]>;
+
+  // Flashcard Progress
   getFlashcardProgress(userId: string, flashcardId: string): Promise<FlashcardProgress | undefined>;
-  updateFlashcardProgress(id: string, data: Partial<InsertFlashcardProgress>): Promise<FlashcardProgress | undefined>;
-  
+  updateFlashcardProgress(progress: InsertFlashcardProgress): Promise<FlashcardProgress>;
+
+  // Understanding Checks
   createUnderstandingCheck(check: InsertUnderstandingCheck): Promise<UnderstandingCheck>;
-  
-  createEnrollment(enrollment: InsertUserCourseEnrollment): Promise<UserCourseEnrollment>;
+  getUnderstandingChecks(userId: string, moduleId: string): Promise<UnderstandingCheck[]>;
+
+  // Enrollments
+  enrollUserInCourse(enrollment: InsertUserCourseEnrollment): Promise<UserCourseEnrollment>;
+  getUserEnrollments(userId: string): Promise<UserCourseEnrollment[]>;
   getEnrollment(userId: string, courseId: string): Promise<UserCourseEnrollment | undefined>;
-  
+
+  // Stats
+  getUserStats(userId: string): Promise<{
+    totalCourses: number;
+    totalMinutes: number;
+    completedModules: number;
+    averageScore: number;
+  }>;
   getAdminStats(): Promise<any>;
 }
 
-export class DatabaseStorage implements IStorage {
+export class FirestoreStorage implements IStorage {
+  // User methods
   async getUser(id: string): Promise<User | undefined> {
-    const [user] = await db.select().from(users).where(eq(users.id, id));
-    return user || undefined;
+    const doc = await db.collection('users').doc(id).get();
+    return doc.exists ? (doc.data() as User) : undefined;
+  }
+
+  async getUserById(id: string): Promise<User | undefined> {
+    return this.getUser(id);
   }
 
   async getUserByUsername(username: string): Promise<User | undefined> {
-    const [user] = await db.select().from(users).where(eq(users.username, username));
-    return user || undefined;
+    const snapshot = await db.collection('users').where('username', '==', username).limit(1).get();
+    if (snapshot.empty) return undefined;
+    return snapshot.docs[0].data() as User;
   }
 
-  async createUser(insertUser: InsertUser): Promise<User> {
-    const [user] = await db.insert(users).values(insertUser).returning();
-    return user;
+  async getUserByEmail(email: string): Promise<User | undefined> {
+    const snapshot = await db.collection('users').where('email', '==', email).limit(1).get();
+    if (snapshot.empty) return undefined;
+    return snapshot.docs[0].data() as User;
   }
 
-  async getCourse(id: string): Promise<any | undefined> {
-    const [course] = await db.select().from(courses).where(eq(courses.id, id));
-    return course || undefined;
+  async getUserByGoogleId(googleId: string): Promise<User | undefined> {
+    const snapshot = await db.collection('users').where('googleId', '==', googleId).limit(1).get();
+    if (snapshot.empty) return undefined;
+    return snapshot.docs[0].data() as User;
+  }
+
+  async createUser(user: InsertUser): Promise<User> {
+    const docRef = db.collection('users').doc();
+    const newUser: User = {
+      ...user,
+      id: docRef.id,
+      provider: user.provider || 'local',
+      isAdmin: user.isAdmin || false,
+      createdAt: FieldValue.serverTimestamp() as Timestamp
+    };
+    await docRef.set(newUser);
+    return newUser;
+  }
+
+  async updateUser(id: string, data: Partial<InsertUser>): Promise<User | undefined> {
+    const docRef = db.collection('users').doc(id);
+    await docRef.update(data);
+    const doc = await docRef.get();
+    return doc.data() as User;
+  }
+
+  // Course methods
+  async getCourse(id: string): Promise<Course | undefined> {
+    const doc = await db.collection('courses').doc(id).get();
+    return doc.exists ? (doc.data() as Course) : undefined;
   }
 
   async getCourseWithDetails(id: string): Promise<any | undefined> {
-    const [course] = await db.query.courses.findMany({
-      where: eq(courses.id, id),
-      with: {
-        tiers: {
-          orderBy: (tiers, { asc }) => [asc(tiers.order)],
-          with: {
-            modules: {
-              orderBy: (modules, { asc }) => [asc(modules.order)],
-            },
-          },
-        },
-      },
-    });
-    
-    return course || undefined;
+    const course = await this.getCourse(id);
+    if (!course) return undefined;
+
+    const tiers = await this.getTiersByCourse(id);
+    const tiersWithModules = await Promise.all(tiers.map(async (tier) => {
+      const modules = await this.getModulesByTier(tier.id);
+      return { ...tier, modules };
+    }));
+
+    return { ...course, tiers: tiersWithModules };
   }
 
   async getAllCourses(): Promise<any[]> {
-    const result = await db.select({
-      id: courses.id,
-      title: courses.title,
-      description: courses.description,
-      sourceType: courses.sourceType,
-      sourceUrl: courses.sourceUrl,
-      createdAt: courses.createdAt,
-      tierCount: sql<number>`(SELECT COUNT(*) FROM ${tiers} WHERE ${tiers.courseId} = ${courses.id})`,
-      moduleCount: sql<number>`(
-        SELECT COUNT(*) FROM ${modules} 
-        WHERE ${modules.tierId} IN (
-          SELECT ${tiers.id} FROM ${tiers} WHERE ${tiers.courseId} = ${courses.id}
-        )
-      )`,
-    }).from(courses).orderBy(desc(courses.createdAt));
-    
-    return result;
+    const [coursesSnap, tiersSnap, modulesSnap] = await Promise.all([
+      db.collection('courses').get(),
+      db.collection('tiers').get(),
+      db.collection('modules').get()
+    ]);
+
+    const tiers = tiersSnap.docs.map(d => ({ id: d.id, ...d.data() } as Tier));
+    const modules = modulesSnap.docs.map(d => ({ id: d.id, ...d.data() } as Module));
+
+    return coursesSnap.docs.map(doc => {
+      const course = { id: doc.id, ...doc.data() } as Course;
+      const courseTiers = tiers.filter(t => t.courseId === course.id);
+      const tierIds = new Set(courseTiers.map(t => t.id));
+      const courseModules = modules.filter(m => tierIds.has(m.tierId));
+
+      return {
+        ...course,
+        tierCount: courseTiers.length,
+        moduleCount: courseModules.length
+      };
+    });
   }
 
   async createCourse(course: InsertCourse): Promise<Course> {
-    const [newCourse] = await db.insert(courses).values(course).returning();
+    const docRef = db.collection('courses').doc();
+    const newCourse: Course = { ...course, id: docRef.id, createdAt: FieldValue.serverTimestamp() as Timestamp };
+    await docRef.set(newCourse);
     return newCourse;
   }
 
   async updateCourse(id: string, data: Partial<InsertCourse>): Promise<Course | undefined> {
-    const [updated] = await db.update(courses).set(data).where(eq(courses.id, id)).returning();
-    return updated || undefined;
+    const docRef = db.collection('courses').doc(id);
+    await docRef.update(data);
+    const doc = await docRef.get();
+    return doc.data() as Course;
   }
 
   async deleteCourse(id: string): Promise<void> {
-    await db.delete(courses).where(eq(courses.id, id));
+    await db.collection('courses').doc(id).delete();
   }
 
+  // Tier methods
   async createTier(tier: InsertTier): Promise<Tier> {
-    const [newTier] = await db.insert(tiers).values(tier).returning();
+    const docRef = db.collection('tiers').doc();
+    const newTier: Tier = {
+      ...tier,
+      id: docRef.id,
+      level: tier.level as 'start' | 'intermediate' | 'advanced',
+      createdAt: FieldValue.serverTimestamp() as Timestamp
+    };
+    await docRef.set(newTier);
     return newTier;
   }
 
   async getTiersByCourse(courseId: string): Promise<Tier[]> {
-    return await db.select().from(tiers).where(eq(tiers.courseId, courseId)).orderBy(tiers.order);
+    const snapshot = await db.collection('tiers').where('courseId', '==', courseId).get();
+    const tiers = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Tier));
+    return tiers.sort((a, b) => a.order - b.order);
   }
 
+  // Module methods
   async createModule(module: InsertModule): Promise<Module> {
-    const [newModule] = await db.insert(modules).values(module).returning();
+    const docRef = db.collection('modules').doc();
+    const newModule: Module = {
+      ...module,
+      id: docRef.id,
+      estimatedMinutes: module.estimatedMinutes || 15,
+      createdAt: FieldValue.serverTimestamp() as Timestamp
+    };
+    await docRef.set(newModule);
     return newModule;
   }
 
   async getModule(id: string): Promise<Module | undefined> {
-    const [module] = await db.select().from(modules).where(eq(modules.id, id));
-    return module || undefined;
+    const doc = await db.collection('modules').doc(id).get();
+    return doc.exists ? (doc.data() as Module) : undefined;
   }
 
   async getModulesByTier(tierId: string): Promise<Module[]> {
-    return await db.select().from(modules).where(eq(modules.tierId, tierId)).orderBy(modules.order);
+    const snapshot = await db.collection('modules').where('tierId', '==', tierId).get();
+    const modules = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Module));
+    return modules.sort((a, b) => a.order - b.order);
   }
 
+  // Flashcard methods
   async createFlashcard(flashcard: InsertFlashcard): Promise<Flashcard> {
-    const [newFlashcard] = await db.insert(flashcards).values(flashcard).returning();
+    const docRef = db.collection('flashcards').doc();
+    const newFlashcard: Flashcard = { ...flashcard, id: docRef.id, createdAt: FieldValue.serverTimestamp() as Timestamp };
+    await docRef.set(newFlashcard);
     return newFlashcard;
   }
 
   async getFlashcardsByModule(moduleId: string): Promise<Flashcard[]> {
-    return await db.select().from(flashcards).where(eq(flashcards.moduleId, moduleId)).orderBy(flashcards.order);
+    const snapshot = await db.collection('flashcards').where('moduleId', '==', moduleId).get();
+    const flashcards = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Flashcard));
+    return flashcards.sort((a, b) => a.order - b.order);
   }
 
+  // Assessment methods
+  async createAssessment(assessment: InsertAssessment): Promise<Assessment> {
+    const docRef = db.collection('assessments').doc();
+    const newAssessment: Assessment = {
+      id: docRef.id,
+      ...assessment,
+      createdAt: FieldValue.serverTimestamp() as Timestamp,
+    };
+    await docRef.set(newAssessment);
+    return newAssessment;
+  }
+
+  async getAssessmentsByModule(moduleId: string): Promise<Assessment[]> {
+    const snapshot = await db.collection('assessments')
+      .where('moduleId', '==', moduleId)
+      .get();
+
+    const assessments = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Assessment));
+    return assessments.sort((a, b) => a.order - b.order);
+  }
+
+  async createAssessmentSubmission(submission: Omit<UserAssessmentSubmission, 'id' | 'completedAt'>): Promise<UserAssessmentSubmission> {
+    const docRef = db.collection('assessment_submissions').doc();
+    const newSubmission: UserAssessmentSubmission = {
+      id: docRef.id,
+      ...submission,
+      completedAt: FieldValue.serverTimestamp() as Timestamp,
+    };
+    await docRef.set(newSubmission);
+    return newSubmission;
+  }
+
+  async getAssessmentSubmissions(userId: string, assessmentId: string): Promise<UserAssessmentSubmission[]> {
+    const snapshot = await db.collection('assessment_submissions')
+      .where('userId', '==', userId)
+      .where('assessmentId', '==', assessmentId)
+      .orderBy('completedAt', 'desc')
+      .get();
+
+    return snapshot.docs.map(doc => doc.data() as UserAssessmentSubmission);
+  }
+
+  // User Interest methods
   async getUserInterest(userId: string): Promise<UserInterest | undefined> {
-    const [interest] = await db.select().from(userInterests).where(eq(userInterests.userId, userId));
-    return interest || undefined;
+    const snapshot = await db.collection('user_interests').where('userId', '==', userId).limit(1).get();
+    if (snapshot.empty) return undefined;
+    return snapshot.docs[0].data() as UserInterest;
   }
 
   async createOrUpdateUserInterest(interest: InsertUserInterest): Promise<UserInterest> {
-    const existing = await this.getUserInterest(interest.userId);
-    
-    if (existing) {
-      const [updated] = await db.update(userInterests)
-        .set({ ...interest, updatedAt: new Date() })
-        .where(eq(userInterests.userId, interest.userId))
-        .returning();
-      return updated;
-    } else {
-      const [created] = await db.insert(userInterests).values(interest).returning();
-      return created;
+    const snapshot = await db.collection('user_interests').where('userId', '==', interest.userId).limit(1).get();
+
+    if (!snapshot.empty) {
+      const docRef = snapshot.docs[0].ref;
+      await docRef.update({ ...interest, updatedAt: FieldValue.serverTimestamp() });
+      const updated = await docRef.get();
+      return updated.data() as UserInterest;
     }
+
+    const docRef = db.collection('user_interests').doc();
+    const newInterest: UserInterest = {
+      ...interest,
+      id: docRef.id,
+      createdAt: FieldValue.serverTimestamp() as Timestamp,
+      updatedAt: FieldValue.serverTimestamp() as Timestamp
+    };
+    await docRef.set(newInterest);
+    return newInterest;
   }
 
+  // Progress methods
   async getUserProgress(userId: string, moduleId: string): Promise<UserProgress | undefined> {
-    const [progress] = await db.select().from(userProgress)
-      .where(and(eq(userProgress.userId, userId), eq(userProgress.moduleId, moduleId)));
-    return progress || undefined;
+    const snapshot = await db.collection('user_progress')
+      .where('userId', '==', userId)
+      .where('moduleId', '==', moduleId)
+      .limit(1)
+      .get();
+
+    if (snapshot.empty) return undefined;
+    return snapshot.docs[0].data() as UserProgress;
   }
 
-  async getUserProgressForCourse(userId: string, courseId: string): Promise<UserProgress[]> {
-    const result = await db.select()
-      .from(userProgress)
-      .innerJoin(modules, eq(userProgress.moduleId, modules.id))
-      .innerJoin(tiers, eq(modules.tierId, tiers.id))
-      .where(and(eq(userProgress.userId, userId), eq(tiers.courseId, courseId)));
-    
-    return result.map(r => r.user_progress);
-  }
+  async updateUserProgress(progress: InsertUserProgress): Promise<UserProgress> {
+    const snapshot = await db.collection('user_progress')
+      .where('userId', '==', progress.userId)
+      .where('moduleId', '==', progress.moduleId)
+      .limit(1)
+      .get();
 
-  async createOrUpdateUserProgress(progress: InsertUserProgress): Promise<UserProgress> {
-    const existing = await this.getUserProgress(progress.userId, progress.moduleId);
-    
-    if (existing) {
-      const [updated] = await db.update(userProgress)
-        .set({ ...progress, updatedAt: new Date() })
-        .where(and(eq(userProgress.userId, progress.userId), eq(userProgress.moduleId, progress.moduleId)))
-        .returning();
-      return updated;
-    } else {
-      const [created] = await db.insert(userProgress).values(progress).returning();
-      return created;
+    if (!snapshot.empty) {
+      const docRef = snapshot.docs[0].ref;
+      await docRef.update({ ...progress, updatedAt: FieldValue.serverTimestamp() });
+      const updated = await docRef.get();
+      return updated.data() as UserProgress;
     }
-  }
 
-  async createFlashcardProgress(progress: InsertFlashcardProgress): Promise<FlashcardProgress> {
-    const [newProgress] = await db.insert(flashcardProgress).values(progress).returning();
+    const docRef = db.collection('user_progress').doc();
+    const newProgress: UserProgress = {
+      ...progress,
+      id: docRef.id,
+      updatedAt: FieldValue.serverTimestamp() as Timestamp,
+      createdAt: FieldValue.serverTimestamp() as Timestamp,
+      completed: progress.completed || false,
+      progressPercent: progress.progressPercent || 0,
+      timeSpentMinutes: progress.timeSpentMinutes || 0,
+      completedAt: progress.completedAt ? Timestamp.fromDate(progress.completedAt) : undefined,
+    };
+    await docRef.set(newProgress);
     return newProgress;
   }
 
+  async getCourseProgress(userId: string, courseId: string): Promise<number> {
+    const tiers = await this.getTiersByCourse(courseId);
+    if (tiers.length === 0) return 0;
+
+    let totalModules = 0;
+    let completedModules = 0;
+
+    for (const tier of tiers) {
+      const modules = await this.getModulesByTier(tier.id);
+      totalModules += modules.length;
+
+      for (const module of modules) {
+        const progress = await this.getUserProgress(userId, module.id);
+        if (progress?.completed) {
+          completedModules++;
+        }
+      }
+    }
+
+    if (totalModules === 0) return 0;
+    return Math.round((completedModules / totalModules) * 100);
+  }
+
+  async getCourseProgressDetails(userId: string, courseId: string): Promise<UserProgress[]> {
+    const tiers = await this.getTiersByCourse(courseId);
+    const progressList: UserProgress[] = [];
+
+    for (const tier of tiers) {
+      const modules = await this.getModulesByTier(tier.id);
+      for (const module of modules) {
+        const progress = await this.getUserProgress(userId, module.id);
+        if (progress) {
+          progressList.push(progress);
+        }
+      }
+    }
+    return progressList;
+  }
+
+  // Flashcard Progress
   async getFlashcardProgress(userId: string, flashcardId: string): Promise<FlashcardProgress | undefined> {
-    const [progress] = await db.select().from(flashcardProgress)
-      .where(and(eq(flashcardProgress.userId, userId), eq(flashcardProgress.flashcardId, flashcardId)));
-    return progress || undefined;
+    const snapshot = await db.collection('flashcard_progress')
+      .where('userId', '==', userId)
+      .where('flashcardId', '==', flashcardId)
+      .limit(1)
+      .get();
+
+    if (snapshot.empty) return undefined;
+    return snapshot.docs[0].data() as FlashcardProgress;
   }
 
-  async updateFlashcardProgress(id: string, data: Partial<InsertFlashcardProgress>): Promise<FlashcardProgress | undefined> {
-    const [updated] = await db.update(flashcardProgress).set(data).where(eq(flashcardProgress.id, id)).returning();
-    return updated || undefined;
+  async updateFlashcardProgress(progress: InsertFlashcardProgress): Promise<FlashcardProgress> {
+    const snapshot = await db.collection('flashcard_progress')
+      .where('userId', '==', progress.userId)
+      .where('flashcardId', '==', progress.flashcardId)
+      .limit(1)
+      .get();
+
+    if (!snapshot.empty) {
+      const docRef = snapshot.docs[0].ref;
+      await docRef.update({ ...progress, lastReviewed: FieldValue.serverTimestamp() });
+      const updated = await docRef.get();
+      return updated.data() as FlashcardProgress;
+    }
+
+    const docRef = db.collection('flashcard_progress').doc();
+    const newProgress: FlashcardProgress = {
+      ...progress,
+      id: docRef.id,
+      lastReviewed: FieldValue.serverTimestamp() as Timestamp,
+      createdAt: FieldValue.serverTimestamp() as Timestamp,
+      easeFactor: progress.easeFactor || 2.5,
+      correct: progress.correct || 0,
+      incorrect: progress.incorrect || 0,
+      nextReview: progress.nextReview ? Timestamp.fromDate(progress.nextReview) : undefined,
+    };
+    await docRef.set(newProgress);
+    return newProgress;
   }
 
+  // Understanding Checks
   async createUnderstandingCheck(check: InsertUnderstandingCheck): Promise<UnderstandingCheck> {
-    const [newCheck] = await db.insert(understandingChecks).values(check).returning();
+    const docRef = db.collection('understanding_checks').doc();
+    const newCheck: UnderstandingCheck = {
+      ...check,
+      id: docRef.id,
+      createdAt: FieldValue.serverTimestamp() as Timestamp,
+    };
+    await docRef.set(newCheck);
     return newCheck;
   }
 
-  async createEnrollment(enrollment: InsertUserCourseEnrollment): Promise<UserCourseEnrollment> {
-    const [newEnrollment] = await db.insert(userCourseEnrollments).values(enrollment).returning();
+  async getUnderstandingChecks(userId: string, moduleId: string): Promise<UnderstandingCheck[]> {
+    const snapshot = await db.collection('understanding_checks')
+      .where('userId', '==', userId)
+      .where('moduleId', '==', moduleId)
+      .orderBy('createdAt', 'desc')
+      .get();
+
+    return snapshot.docs.map(doc => doc.data() as UnderstandingCheck);
+  }
+
+  // Enrollments
+  async enrollUserInCourse(enrollment: InsertUserCourseEnrollment): Promise<UserCourseEnrollment> {
+    const docRef = db.collection('enrollments').doc();
+    const newEnrollment: UserCourseEnrollment = {
+      ...enrollment,
+      id: docRef.id,
+      enrolledAt: FieldValue.serverTimestamp() as Timestamp,
+    };
+    await docRef.set(newEnrollment);
     return newEnrollment;
   }
 
+  async getUserEnrollments(userId: string): Promise<UserCourseEnrollment[]> {
+    const snapshot = await db.collection('enrollments')
+      .where('userId', '==', userId)
+      .orderBy('enrolledAt', 'desc')
+      .get();
+
+    return snapshot.docs.map(doc => doc.data() as UserCourseEnrollment);
+  }
+
   async getEnrollment(userId: string, courseId: string): Promise<UserCourseEnrollment | undefined> {
-    const [enrollment] = await db.select().from(userCourseEnrollments)
-      .where(and(eq(userCourseEnrollments.userId, userId), eq(userCourseEnrollments.courseId, courseId)));
-    return enrollment || undefined;
+    const snapshot = await db.collection('enrollments')
+      .where('userId', '==', userId)
+      .where('courseId', '==', courseId)
+      .limit(1)
+      .get();
+
+    if (snapshot.empty) return undefined;
+    return snapshot.docs[0].data() as UserCourseEnrollment;
+  }
+
+  // Stats
+  async getUserStats(userId: string): Promise<{
+    totalCourses: number;
+    totalMinutes: number;
+    completedModules: number;
+    averageScore: number;
+  }> {
+    const enrollments = await this.getUserEnrollments(userId);
+
+    const progressSnapshot = await db.collection('user_progress')
+      .where('userId', '==', userId)
+      .get();
+
+    const progress = progressSnapshot.docs.map(doc => doc.data() as UserProgress);
+
+    const totalMinutes = progress.reduce((acc, curr) => acc + (curr.timeSpentMinutes || 0), 0);
+    const completedModules = progress.filter(p => p.completed).length;
+
+    const checksSnapshot = await db.collection('understanding_checks')
+      .where('userId', '==', userId)
+      .get();
+
+    const checks = checksSnapshot.docs.map(doc => doc.data() as UnderstandingCheck);
+    const averageScore = checks.length > 0
+      ? Math.round(checks.reduce((acc, curr) => acc + curr.score, 0) / checks.length)
+      : 0;
+
+    return {
+      totalCourses: enrollments.length,
+      totalMinutes,
+      completedModules,
+      averageScore,
+    };
   }
 
   async getAdminStats(): Promise<any> {
-    const [stats] = await db.select({
-      totalCourses: sql<number>`COUNT(DISTINCT ${courses.id})`,
-      totalUsers: sql<number>`COUNT(DISTINCT ${users.id})`,
-      totalEnrollments: sql<number>`COUNT(DISTINCT ${userCourseEnrollments.id})`,
-    }).from(courses)
-      .leftJoin(users, sql`true`)
-      .leftJoin(userCourseEnrollments, sql`true`);
-    
-    return stats;
+    const [coursesSnapshot, usersSnapshot, enrollmentsSnapshot] = await Promise.all([
+      db.collection('courses').get(),
+      db.collection('users').get(),
+      db.collection('enrollments').get(),
+    ]);
+
+    return {
+      totalCourses: coursesSnapshot.size,
+      totalUsers: usersSnapshot.size,
+      totalEnrollments: enrollmentsSnapshot.size,
+    };
   }
 }
 
-export const storage = new DatabaseStorage();
+export const storage = new FirestoreStorage();

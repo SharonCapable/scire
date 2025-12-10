@@ -13,6 +13,7 @@ import Interests from "@/pages/interests";
 import Courses from "@/pages/courses";
 import CourseDetail from "@/pages/course-detail";
 import Learn from "@/pages/learn";
+import Dashboard from "@/pages/dashboard";
 import Admin from "@/pages/admin";
 import AdminCourses from "@/pages/admin-courses";
 import AdminCourseForm from "@/pages/admin-course-form";
@@ -25,6 +26,7 @@ function Router() {
       <Route path="/courses" component={Courses} />
       <Route path="/course/:id" component={CourseDetail} />
       <Route path="/learn/:id" component={Learn} />
+      <Route path="/dashboard" component={Dashboard} />
       <Route path="/admin" component={Admin} />
       <Route path="/admin/courses" component={AdminCourses} />
       <Route path="/admin/course/:id" component={AdminCourseForm} />
@@ -50,7 +52,7 @@ export default function App() {
                 <header className="flex items-center justify-between p-4 border-b">
                   <div className="flex items-center gap-2">
                     <SidebarTrigger data-testid="button-sidebar-toggle" />
-                    <h1 className="text-xl font-bold font-heading">EduAccess</h1>
+                    <h1 className="text-xl font-bold font-heading">SCIRE</h1>
                   </div>
                   <ThemeToggle />
                 </header>

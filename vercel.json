@@ -1,0 +1,33 @@
+{
+    "version": 2,
+    "builds": [
+        {
+            "src": "server/index-prod.ts",
+            "use": "@vercel/node",
+            "config": {
+                "includeFiles": [
+                    "client/public/**",
+                    "server/**",
+                    "shared/**"
+                ]
+            }
+        }
+    ],
+    "routes": [
+        {
+            "src": "/api/(.*)",
+            "dest": "server/index-prod.ts"
+        },
+        {
+            "src": "/auth/(.*)",
+            "dest": "server/index-prod.ts"
+        },
+        {
+            "src": "/(.*)",
+            "dest": "server/index-prod.ts"
+        }
+    ],
+    "env": {
+        "NODE_ENV": "production"
+    }
+}

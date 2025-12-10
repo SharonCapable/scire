@@ -8,12 +8,18 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import { BookOpen, Search } from "lucide-react";
 import { useState } from "react";
+import type { Course } from "@shared/types";
+
+interface CourseWithStats extends Course {
+  tierCount: number;
+  moduleCount: number;
+}
 
 export default function Courses() {
   const [search, setSearch] = useState("");
   const [tierFilter, setTierFilter] = useState<string>("all");
 
-  const { data: courses, isLoading } = useQuery({
+  const { data: courses, isLoading } = useQuery<CourseWithStats[]>({
     queryKey: ["/api/courses"],
   });
 

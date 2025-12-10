@@ -4,10 +4,16 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { BookOpen, Users, TrendingUp, Plus } from "lucide-react";
 
+interface AdminStats {
+  totalCourses: number;
+  totalUsers: number;
+  totalEnrollments: number;
+}
+
 export default function Admin() {
   const [, setLocation] = useLocation();
 
-  const { data: stats } = useQuery({
+  const { data: stats } = useQuery<AdminStats>({
     queryKey: ["/api/admin/stats"],
   });
 
