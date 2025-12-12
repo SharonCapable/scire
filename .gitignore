@@ -2,6 +2,10 @@
 node_modules
 dist
 
+# Agent
+.agent
+.local  
+
 # Environment variables
 .env
 .env.local
