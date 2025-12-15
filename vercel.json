@@ -1,12 +1,17 @@
 {
     "version": 2,
+    "buildCommand": "npm run build",
+    "outputDirectory": "dist/public",
     "rewrites": [
         {
             "source": "/(.*)",
             "destination": "/api/index"
         }
     ],
-    "env": {
-        "NODE_ENV": "production"
+    "functions": {
+        "api/index.js": {
+            "maxDuration": 30,
+            "memory": 1024
+        }
     }
 }

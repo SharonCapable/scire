@@ -4,7 +4,7 @@ dist
 
 # Agent
 .agent
-.local  
+.local
 
 # Environment variables
 .env
@@ -17,6 +17,8 @@ firebase-service-account.json
 
 # Build outputs
 server/public
+api/index.js
+api/index.js.map
 *.tar.gz
 
 # OS files

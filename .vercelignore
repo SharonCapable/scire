@@ -1,0 +1,13 @@
+# Exclude source TypeScript from API (keep bundled .js)
+api/index.ts
+
+# Exclude development files
+.env.local
+.env.development
+*.log
+.agent
+.local
+
+# Exclude test files
+*.test.ts
+*.test.js
