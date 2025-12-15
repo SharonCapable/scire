@@ -12,6 +12,21 @@ dist
 .env.local
 .env.*.local
 
+# Internal documentation (keep only README.md)
+API_INTEGRATION_PLAN.md
+ASSESSMENT_SYSTEM_READY.md
+CLEANUP_SUMMARY.md
+CONTENT_STRATEGY.md
+DEPLOYMENT.md
+IMPLEMENTATION_COMPLETE.md
+MIGRATION_COMPLETE.md
+NEXT_STEPS.md
+OPENSTAX_GUIDE.md
+READY_TO_DEPLOY.md
+SCIRE_TRANSFORMATION.md
+VERCEL_DEPLOYMENT.md
+design_guidelines.md
+
 #misc
 credentials.json
 firebase-service-account.json
@@ -19,7 +34,7 @@ firebase-service-account.json
 # Build outputs
 server/public
 api/index.js
-api/index.js.map
+api/index.js.maphmmm
 *.tar.gz
 
 # OS files
