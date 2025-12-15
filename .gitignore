@@ -5,6 +5,7 @@ dist
 # Agent
 .agent
 .local
+.claude
 
 # Environment variables
 .env
