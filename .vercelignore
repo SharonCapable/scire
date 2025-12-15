@@ -1,7 +1,4 @@
-# Exclude source TypeScript from API (keep bundled .js)
-api/index.ts
-
-# Exclude development files
+# Exclude development files only
 .env.local
 .env.development
 *.log
@@ -11,3 +8,5 @@ api/index.ts
 # Exclude test files
 *.test.ts
 *.test.js
+
+# Don't exclude source files - they're needed for the build!
