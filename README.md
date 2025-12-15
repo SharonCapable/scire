@@ -4,7 +4,7 @@
 
 ## 🌟 Features
 
-- **AI-Powered Content Generation**: Uses Google Gemini 1.5 Pro to create structured learning paths
+- **AI-Powered Content Generation**: Uses Google Gemini models to create structured learning paths
 - **Tiered Learning**: Progressive difficulty levels (Start, Intermediate, Advanced)
 - **Interactive Flashcards**: AI-generated flashcards for each module
 - **Understanding Checks**: AI validates student comprehension and provides feedback
@@ -19,7 +19,7 @@
 - Node.js 18+ and npm
 - Firebase Project (Firestore enabled)
 - Google Gemini API key
-- Google OAuth 2.0 credentials
+- Google OAuth 2.0 Service Account
 
 ### Installation
 
