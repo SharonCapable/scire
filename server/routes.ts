@@ -1,7 +1,8 @@
-import type { Express } from "express";
+import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { seedDatabase } from "./seed";
+import { requireAuth, optionalAuth } from "./auth";
 import {
   generateCourseTiers,
   generateFlashcards,
@@ -16,10 +17,15 @@ import {
 export async function registerRoutes(app: Express): Promise<Server> {
   await seedDatabase();
 
+  // Public courses endpoint - excludes personalized courses
   app.get("/api/courses", async (req, res) => {
     try {
-      const courses = await storage.getAllCourses();
-      res.json(courses);
+      const allCourses = await storage.getAllCourses();
+      // Filter out personalized courses from public browse
+      const publicCourses = allCourses.filter(
+        (course) => !course.isPersonalized
+      );
+      res.json(publicCourses);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch courses" });
     }
@@ -522,12 +528,65 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // User Dashboard Routes
-  app.get("/api/user/enrolled-courses", async (req: any, res) => {
+  app.get("/api/user/enrolled-courses", optionalAuth, async (req: any, res) => {
     try {
+      console.log("[enrolled-courses] Request received");
+      console.log("[enrolled-courses] User:", req.user);
+
       const userId = req.user?.id || "user1"; // Fallback for development
+      console.log("[enrolled-courses] Using userId:", userId);
+
       const enrollments = await storage.getUserEnrollments(userId);
-      res.json(enrollments);
+      console.log("[enrolled-courses] Enrollments found:", enrollments.length);
+
+      // Fetch full course details for each enrollment
+      const coursesWithDetails = await Promise.all(
+        enrollments.map(async (enrollment) => {
+          console.log("[enrolled-courses] Processing enrollment:", enrollment.id, "courseId:", enrollment.courseId);
+
+          const course = await storage.getCourseWithDetails(enrollment.courseId);
+          if (!course) {
+            console.log("[enrolled-courses] Course not found for:", enrollment.courseId);
+            return null;
+          }
+
+          console.log("[enrolled-courses] Course found:", course.id, course.title);
+
+          // Calculate progress
+          const progress = await storage.getCourseProgress(userId, enrollment.courseId);
+          console.log("[enrolled-courses] Progress calculated:", progress);
+
+          // Get tiers with generation status
+          const tiers = course.tiers?.map((tier: any) => ({
+            id: tier.id,
+            level: tier.level,
+            title: tier.title,
+            generationStatus: tier.generationStatus || (tier.modules?.length > 0 ? 'completed' : 'locked'),
+            modulesCount: tier.modules?.length || 0,
+          })) || [];
+
+          return {
+            id: course.id,
+            title: course.title,
+            description: course.description,
+            progress,
+            timeSpent: 0, // Can calculate from progress entries
+            isPersonalized: course.isPersonalized || false,
+            generationStatus: course.generationStatus || 'completed',
+            generatedForUserId: course.generatedForUserId,
+            tiers,
+            enrolledAt: enrollment.enrolledAt,
+          };
+        })
+      );
+
+      // Filter out nulls and return
+      const result = coursesWithDetails.filter(Boolean);
+      console.log("[enrolled-courses] Returning courses:", result.length);
+      res.json(result);
     } catch (error) {
+      console.error("[enrolled-courses] ERROR:", error);
+      console.error("[enrolled-courses] Stack:", (error as Error).stack);
       res.status(500).json({ error: "Failed to fetch enrolled courses" });
     }
   });
@@ -551,12 +610,406 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/admin/stats", async (req, res) => {
+  app.get("/api/admin/stats", optionalAuth, async (req: any, res) => {
     try {
+      // Check if user is an educator
+      if (req.user && req.user.role !== 'educator') {
+        return res.status(403).json({ error: "Access denied. Educators only." });
+      }
       const stats = await storage.getAdminStats();
       res.json(stats);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch stats" });
+    }
+  });
+
+  // User's personalized courses endpoint
+  app.get("/api/user/personalized-courses", optionalAuth, async (req: any, res) => {
+    try {
+      const userId = req.user?.id || "user1";
+      const allCourses = await storage.getAllCourses();
+      const personalizedCourses = allCourses.filter(
+        (course) => course.isPersonalized && course.generatedForUserId === userId
+      );
+      res.json(personalizedCourses);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch personalized courses" });
+    }
+  });
+
+  // Generate course from interests (Tier 1 auto-generates)
+  app.post("/api/courses/generate-from-interests", optionalAuth, async (req: any, res) => {
+    try {
+      const userId = req.user?.id || "user1";
+      const { topics, learningGoals } = req.body;
+
+      if (!topics || topics.length === 0) {
+        return res.status(400).json({ error: "Topics are required" });
+      }
+
+      const primaryTopic = topics[0];
+
+      // Generate course structure
+      const structure = await generateCourseStructure(primaryTopic, learningGoals || "General knowledge");
+
+      // Create personalized course
+      const course = await storage.createCourse({
+        title: structure.title,
+        description: structure.description,
+        sourceType: "ai_generated",
+        content: "AI Generated Course",
+        createdBy: userId,
+        isPersonalized: true,
+        generatedForUserId: userId,
+        generationStatus: "generating"
+      });
+
+      // Create tiers - only generate content for Tier 1 (start)
+      const tierLevelOrder: { [key: string]: number } = { start: 0, intermediate: 1, advanced: 2 };
+
+      for (const tierData of structure.tiers) {
+        const isStartTier = tierData.level === 'start';
+
+        const tier = await storage.createTier({
+          courseId: course.id,
+          level: tierData.level,
+          title: tierData.title,
+          description: tierData.description,
+          order: tierLevelOrder[tierData.level] || 0,
+          generationStatus: isStartTier ? 'completed' : 'locked'
+        });
+
+        // Only generate modules for start tier
+        if (isStartTier) {
+          for (let i = 0; i < tierData.modules.length; i++) {
+            const modData = tierData.modules[i];
+            const content = await generateModuleContent(modData.title, modData.summary, structure.title);
+
+            const module = await storage.createModule({
+              tierId: tier.id,
+              title: modData.title,
+              content: content,
+              order: i,
+              estimatedMinutes: modData.estimatedMinutes
+            });
+
+            // Generate assessments
+            const quiz = await generateQuiz(content, modData.title);
+            await storage.createAssessment({
+              moduleId: module.id,
+              type: "quiz",
+              title: "Quiz",
+              questions: quiz,
+              order: 0
+            });
+
+            const check = await generateUnderstandingPrompt(content, modData.title);
+            await storage.createAssessment({
+              moduleId: module.id,
+              type: "understanding",
+              title: "Check",
+              prompt: check.prompt,
+              rubric: check.rubric,
+              order: 1
+            });
+          }
+        }
+      }
+
+      // Update course status to completed
+      await storage.updateCourse(course.id, { generationStatus: "completed" });
+
+      // Auto-enroll user
+      await storage.enrollUserInCourse({ userId, courseId: course.id });
+
+      // Create notification for course creation
+      await storage.createNotification({
+        userId,
+        type: 'course_created',
+        title: 'Course Created!',
+        message: `Your personalized course "${structure.title}" is ready! Tier 1 is available to start learning.`,
+        data: { courseId: course.id }
+      });
+
+      res.json({
+        success: true,
+        course: { ...course, generationStatus: "completed" },
+        message: "Course generated successfully! Tier 1 is ready to learn."
+      });
+    } catch (error: any) {
+      console.error("Generate from interests error:", error);
+      res.status(500).json({ error: error?.message || "Failed to generate course" });
+    }
+  });
+
+  // Generate a specific tier for a course
+  app.post("/api/courses/:id/generate-tier/:tierLevel", optionalAuth, async (req: any, res) => {
+    try {
+      const userId = req.user?.id || "user1";
+      const { id, tierLevel } = req.params;
+
+      // Get course and verify ownership
+      const course = await storage.getCourse(id);
+      if (!course) {
+        return res.status(404).json({ error: "Course not found" });
+      }
+
+      if (course.generatedForUserId && course.generatedForUserId !== userId) {
+        return res.status(403).json({ error: "You don't have access to this course" });
+      }
+
+      // Get all tiers for this course
+      const tiers = await storage.getTiersByCourse(id);
+      const targetTier = tiers.find(t => t.level === tierLevel);
+
+      if (!targetTier) {
+        return res.status(404).json({ error: "Tier not found" });
+      }
+
+      // Check if previous tier is completed (can't skip tiers)
+      const tierOrder = ['start', 'intermediate', 'advanced'];
+      const currentTierIndex = tierOrder.indexOf(tierLevel);
+
+      if (currentTierIndex > 0) {
+        const previousTierLevel = tierOrder[currentTierIndex - 1];
+        const previousTier = tiers.find(t => t.level === previousTierLevel);
+
+        if (!previousTier || previousTier.generationStatus !== 'completed') {
+          return res.status(400).json({
+            error: "You must complete the previous tier before generating this one"
+          });
+        }
+      }
+
+      // Update tier status to generating
+      await storage.updateTier(targetTier.id, { generationStatus: 'generating' });
+
+      // Get course structure data
+      const structure = await generateCourseStructure(course.title, course.description);
+      const tierData = structure.tiers.find((t: any) => t.level === tierLevel);
+
+      if (!tierData) {
+        await storage.updateTier(targetTier.id, { generationStatus: 'locked' });
+        return res.status(500).json({ error: "Failed to get tier structure" });
+      }
+
+      // Generate modules for this tier
+      for (let i = 0; i < tierData.modules.length; i++) {
+        const modData = tierData.modules[i];
+        const content = await generateModuleContent(modData.title, modData.summary, course.title);
+
+        const module = await storage.createModule({
+          tierId: targetTier.id,
+          title: modData.title,
+          content: content,
+          order: i,
+          estimatedMinutes: modData.estimatedMinutes
+        });
+
+        // Generate assessments
+        const quiz = await generateQuiz(content, modData.title);
+        await storage.createAssessment({
+          moduleId: module.id,
+          type: "quiz",
+          title: "Quiz",
+          questions: quiz,
+          order: 0
+        });
+
+        const check = await generateUnderstandingPrompt(content, modData.title);
+        await storage.createAssessment({
+          moduleId: module.id,
+          type: "understanding",
+          title: "Check",
+          prompt: check.prompt,
+          rubric: check.rubric,
+          order: 1
+        });
+      }
+
+      // Update tier status to completed
+      await storage.updateTier(targetTier.id, { generationStatus: 'completed' });
+
+      // Create notification for tier unlock
+      await storage.createNotification({
+        userId,
+        type: 'tier_unlocked',
+        title: 'New Tier Unlocked!',
+        message: `${tierLevel.charAt(0).toUpperCase() + tierLevel.slice(1)} tier is now available in "${course.title}"!`,
+        data: { courseId: course.id, tierId: targetTier.id }
+      });
+
+      res.json({
+        success: true,
+        message: `${tierLevel} tier generated successfully!`
+      });
+    } catch (error: any) {
+      console.error("Generate tier error:", error);
+      res.status(500).json({ error: error?.message || "Failed to generate tier" });
+    }
+  });
+
+  // =====================================
+  // NOTIFICATION ROUTES
+  // =====================================
+
+  // Get user's notifications
+  app.get("/api/notifications", optionalAuth, async (req: any, res) => {
+    try {
+      const userId = req.user?.id || "user1";
+      const notifications = await storage.getUserNotifications(userId);
+      res.json(notifications);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch notifications" });
+    }
+  });
+
+  // Get unread count
+  app.get("/api/notifications/unread-count", optionalAuth, async (req: any, res) => {
+    try {
+      const userId = req.user?.id || "user1";
+      const notifications = await storage.getUserNotifications(userId);
+      const unreadCount = notifications.filter(n => !n.read).length;
+      res.json({ unreadCount });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch unread count" });
+    }
+  });
+
+  // Mark notification as read
+  app.patch("/api/notifications/:id/read", optionalAuth, async (req: any, res) => {
+    try {
+      await storage.markNotificationRead(req.params.id);
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to mark notification as read" });
+    }
+  });
+
+  // Mark all notifications as read
+  app.post("/api/notifications/mark-all-read", optionalAuth, async (req: any, res) => {
+    try {
+      const userId = req.user?.id || "user1";
+      await storage.markAllNotificationsRead(userId);
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to mark all notifications as read" });
+    }
+  });
+
+  // DEBUG ENDPOINT - Remove after fixing
+  app.get("/api/debug/user-data", optionalAuth, async (req: any, res) => {
+    try {
+      const userId = req.user?.id || "user1";
+      const clerkUserId = req.user?.clerkId;
+
+      const enrollments = await storage.getUserEnrollments(userId);
+      const allCourses = await storage.getAllCourses();
+      const personalizedCourses = allCourses.filter(c => c.isPersonalized);
+
+      res.json({
+        currentUser: {
+          id: userId,
+          clerkId: clerkUserId,
+          fullUser: req.user
+        },
+        enrollments: enrollments.map(e => ({
+          id: e.id,
+          courseId: e.courseId,
+          userId: e.userId
+        })),
+        personalizedCourses: personalizedCourses.map(c => ({
+          id: c.id,
+          title: c.title,
+          generatedForUserId: c.generatedForUserId,
+          createdBy: c.createdBy
+        })),
+        summary: {
+          totalEnrollments: enrollments.length,
+          totalPersonalizedCourses: personalizedCourses.length,
+          userIdMatch: personalizedCourses.some(c => c.generatedForUserId === userId)
+        }
+      });
+    } catch (error) {
+      console.error("Debug endpoint error:", error);
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
+  // WORKING MIGRATION ENDPOINT - Fixes user ID mismatch
+  app.post("/api/fix-user-data", optionalAuth, async (req: any, res) => {
+    try {
+      const toUserId = req.user?.id;
+      const fromUserId = req.body.fromUserId || "user1";
+
+      if (!toUserId) {
+        return res.status(401).json({ error: "Must be authenticated" });
+      }
+
+      console.log(`[FIX] Starting migration: ${fromUserId} → ${toUserId}`);
+
+      const { db } = await import("./firebase");
+      let stats = {
+        courses: 0,
+        enrollments: 0,
+        progress: 0,
+        notifications: 0,
+        interests: 0
+      };
+
+      // Fix courses
+      const coursesSnapshot = await db.collection('courses').get();
+      for (const doc of coursesSnapshot.docs) {
+        const course = doc.data();
+        const updates: any = {};
+        if (course.createdBy === fromUserId) updates.createdBy = toUserId;
+        if (course.generatedForUserId === fromUserId) updates.generatedForUserId = toUserId;
+
+        if (Object.keys(updates).length > 0) {
+          await doc.ref.update(updates);
+          console.log(`[FIX] Updated course: ${course.title}`);
+          stats.courses++;
+        }
+      }
+
+      // Fix enrollments
+      const enrollmentsSnapshot = await db.collection('enrollments').where('userId', '==', fromUserId).get();
+      for (const doc of enrollmentsSnapshot.docs) {
+        await doc.ref.update({ userId: toUserId });
+        stats.enrollments++;
+      }
+
+      // Fix progress
+      const progressSnapshot = await db.collection('user_progress').where('userId', '==', fromUserId).get();
+      for (const doc of progressSnapshot.docs) {
+        await doc.ref.update({ userId: toUserId });
+        stats.progress++;
+      }
+
+      // Fix notifications
+      const notificationsSnapshot = await db.collection('notifications').where('userId', '==', fromUserId).get();
+      for (const doc of notificationsSnapshot.docs) {
+        await doc.ref.update({ userId: toUserId });
+        stats.notifications++;
+      }
+
+      // Fix interests
+      const interestsSnapshot = await db.collection('user_interests').where('userId', '==', fromUserId).get();
+      for (const doc of interestsSnapshot.docs) {
+        await doc.ref.update({ userId: toUserId });
+        stats.interests++;
+      }
+
+      console.log(`[FIX] Migration complete:`, stats);
+
+      res.json({
+        success: true,
+        message: "Data migration completed",
+        stats
+      });
+    } catch (error) {
+      console.error("[FIX] Error:", error);
+      res.status(500).json({ error: (error as Error).message });
     }
   });
 

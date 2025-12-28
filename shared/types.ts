@@ -10,13 +10,16 @@ export interface Timestamp {
 export interface User {
     id: string;
     username: string;
-    password?: string; // Optional for Google OAuth users
+    password?: string; // Optional for OAuth users
     email?: string;
     name?: string;
     picture?: string;
     googleId?: string;
-    provider: 'local' | 'google';
+    clerkId?: string;
+    provider: 'local' | 'google' | 'clerk';
     isAdmin: boolean;
+    role?: 'student' | 'educator';
+    onboardingCompleted?: boolean;
     createdAt: Timestamp;
 }
 
@@ -27,8 +30,11 @@ export interface InsertUser {
     name?: string;
     picture?: string;
     googleId?: string;
-    provider?: 'local' | 'google';
+    clerkId?: string;
+    provider?: 'local' | 'google' | 'clerk';
     isAdmin?: boolean;
+    role?: 'student' | 'educator';
+    onboardingCompleted?: boolean;
 }
 
 // Course types
@@ -40,6 +46,10 @@ export interface Course {
     sourceUrl?: string;
     content: string;
     createdBy: string;
+    // Personalized course fields
+    isPersonalized?: boolean;
+    generatedForUserId?: string;
+    generationStatus?: 'pending' | 'generating' | 'completed' | 'failed';
     createdAt: Timestamp;
 }
 
@@ -50,6 +60,9 @@ export interface InsertCourse {
     sourceUrl?: string;
     content: string;
     createdBy: string;
+    isPersonalized?: boolean;
+    generatedForUserId?: string;
+    generationStatus?: 'pending' | 'generating' | 'completed' | 'failed';
 }
 
 // Tier types
@@ -60,6 +73,9 @@ export interface Tier {
     order: number;
     title: string;
     description?: string;
+    // Generation status for tier-by-tier generation
+    generationStatus?: 'locked' | 'generating' | 'completed';
+    unlockedAt?: Timestamp;
     createdAt: Timestamp;
 }
 
@@ -69,6 +85,7 @@ export interface InsertTier {
     order: number;
     title: string;
     description?: string;
+    generationStatus?: 'locked' | 'generating' | 'completed';
 }
 
 // Module types
@@ -251,4 +268,40 @@ export interface InsertUserCourseEnrollment {
     userId: string;
     courseId: string;
     currentTierId?: string;
+}
+
+// Notification types
+export type NotificationType =
+    | 'course_created'
+    | 'tier_unlocked'
+    | 'course_completed'
+    | 'achievement_earned'
+    | 'enrollment_confirmed';
+
+export interface Notification {
+    id: string;
+    userId: string;
+    type: NotificationType;
+    title: string;
+    message: string;
+    data?: {
+        courseId?: string;
+        tierId?: string;
+        achievementId?: string;
+    };
+    read: boolean;
+    createdAt: Timestamp;
+}
+
+export interface InsertNotification {
+    userId: string;
+    type: NotificationType;
+    title: string;
+    message: string;
+    data?: {
+        courseId?: string;
+        tierId?: string;
+        achievementId?: string;
+    };
+    read?: boolean;
 }
