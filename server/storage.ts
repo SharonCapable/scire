@@ -13,6 +13,7 @@ import type {
   UserCourseEnrollment, InsertUserCourseEnrollment,
   Assessment, InsertAssessment,
   UserAssessmentSubmission,
+  Notification, InsertNotification,
 } from '@shared/types';
 
 export interface IStorage {
@@ -22,8 +23,10 @@ export interface IStorage {
   getUserByUsername(username: string): Promise<User | undefined>;
   getUserByEmail(email: string): Promise<User | undefined>;
   getUserByGoogleId(googleId: string): Promise<User | undefined>;
+  getUserByClerkId(clerkId: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
   updateUser(id: string, data: Partial<InsertUser>): Promise<User | undefined>;
+  deleteUser(id: string): Promise<void>;
 
   // Course methods
   getCourse(id: string): Promise<Course | undefined>;
@@ -36,6 +39,7 @@ export interface IStorage {
   // Tier methods
   createTier(tier: InsertTier): Promise<Tier>;
   getTiersByCourse(courseId: string): Promise<Tier[]>;
+  updateTier(id: string, data: Partial<InsertTier>): Promise<Tier | undefined>;
 
   // Module methods
   createModule(module: InsertModule): Promise<Module>;
@@ -83,6 +87,12 @@ export interface IStorage {
     averageScore: number;
   }>;
   getAdminStats(): Promise<any>;
+
+  // Notifications
+  createNotification(notification: InsertNotification): Promise<Notification>;
+  getUserNotifications(userId: string): Promise<Notification[]>;
+  markNotificationRead(id: string): Promise<void>;
+  markAllNotificationsRead(userId: string): Promise<void>;
 }
 
 export class FirestoreStorage implements IStorage {
@@ -114,6 +124,12 @@ export class FirestoreStorage implements IStorage {
     return snapshot.docs[0].data() as User;
   }
 
+  async getUserByClerkId(clerkId: string): Promise<User | undefined> {
+    const snapshot = await db.collection('users').where('clerkId', '==', clerkId).limit(1).get();
+    if (snapshot.empty) return undefined;
+    return snapshot.docs[0].data() as User;
+  }
+
   async createUser(user: InsertUser): Promise<User> {
     const docRef = db.collection('users').doc();
     const newUser: User = {
@@ -132,6 +148,10 @@ export class FirestoreStorage implements IStorage {
     await docRef.update(data);
     const doc = await docRef.get();
     return doc.data() as User;
+  }
+
+  async deleteUser(id: string): Promise<void> {
+    await db.collection('users').doc(id).delete();
   }
 
   // Course methods
@@ -212,6 +232,16 @@ export class FirestoreStorage implements IStorage {
     const snapshot = await db.collection('tiers').where('courseId', '==', courseId).get();
     const tiers = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Tier));
     return tiers.sort((a, b) => a.order - b.order);
+  }
+
+  async updateTier(id: string, data: Partial<InsertTier>): Promise<Tier | undefined> {
+    const docRef = db.collection('tiers').doc(id);
+    const doc = await docRef.get();
+    if (!doc.exists) return undefined;
+
+    await docRef.update(data);
+    const updated = await docRef.get();
+    return { id: updated.id, ...updated.data() } as Tier;
   }
 
   // Module methods
@@ -544,6 +574,45 @@ export class FirestoreStorage implements IStorage {
       totalUsers: usersSnapshot.size,
       totalEnrollments: enrollmentsSnapshot.size,
     };
+  }
+
+  // Notification methods
+  async createNotification(notification: InsertNotification): Promise<Notification> {
+    const docRef = db.collection('notifications').doc();
+    const newNotification: Notification = {
+      ...notification,
+      id: docRef.id,
+      read: notification.read || false,
+      createdAt: FieldValue.serverTimestamp() as Timestamp,
+    };
+    await docRef.set(newNotification);
+    return newNotification;
+  }
+
+  async getUserNotifications(userId: string): Promise<Notification[]> {
+    const snapshot = await db.collection('notifications')
+      .where('userId', '==', userId)
+      .orderBy('createdAt', 'desc')
+      .limit(50)
+      .get();
+    return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Notification));
+  }
+
+  async markNotificationRead(id: string): Promise<void> {
+    await db.collection('notifications').doc(id).update({ read: true });
+  }
+
+  async markAllNotificationsRead(userId: string): Promise<void> {
+    const snapshot = await db.collection('notifications')
+      .where('userId', '==', userId)
+      .where('read', '==', false)
+      .get();
+
+    const batch = db.batch();
+    snapshot.docs.forEach(doc => {
+      batch.update(doc.ref, { read: true });
+    });
+    await batch.commit();
   }
 }
 

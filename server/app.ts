@@ -37,7 +37,7 @@ app.use(express.json({
 }));
 app.use(express.urlencoded({ extended: false, limit: '50mb' }));
 
-// Session middleware
+// Session middleware (kept for backward compatibility, can be removed if not needed)
 app.use(
   session({
     secret: process.env.SESSION_SECRET || "scire-secret-key-change-in-production",
@@ -51,7 +51,7 @@ app.use(
   })
 );
 
-// Setup authentication
+// Setup Clerk authentication routes
 setupAuth(app);
 
 app.use((req, res, next) => {

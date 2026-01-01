@@ -16,6 +16,8 @@
     "generate-assessments": "cross-env NODE_ENV=development tsx --env-file=.env server/generate-assessments.ts"
   },
   "dependencies": {
+    "@clerk/backend": "^2.29.0",
+    "@clerk/clerk-react": "^5.59.2",
     "@google/generative-ai": "^0.24.1",
     "@hookform/resolvers": "^3.10.0",
     "@jridgewell/trace-mapping": "^0.3.25",
