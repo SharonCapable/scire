@@ -187,19 +187,25 @@ export default function Dashboard() {
                     {/* XP Progress */}
                     <Card className="bg-gradient-to-r from-primary/10 to-violet-500/10">
                         <CardContent className="p-4">
-                            <div className="flex items-center gap-4">
-                                <div className="flex items-center gap-2">
-                                    <Trophy className="h-6 w-6 text-yellow-500" />
-                                    <span className="text-xl font-bold">Level {level}</span>
+                            <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
+                                <div className="flex items-center justify-between sm:justify-start gap-2">
+                                    <div className="flex items-center gap-2">
+                                        <Trophy className="h-6 w-6 text-yellow-500" />
+                                        <span className="text-xl font-bold">Level {level}</span>
+                                    </div>
+                                    <div className="flex items-center gap-2 sm:hidden">
+                                        <Flame className="h-5 w-5 text-orange-500" />
+                                        <span className="font-semibold text-sm">{currentStreak} days</span>
+                                    </div>
                                 </div>
                                 <div className="flex-1">
                                     <div className="flex items-center justify-between mb-1">
                                         <span className="text-sm font-medium">{totalXP.toLocaleString()} XP</span>
-                                        <span className="text-sm text-muted-foreground">{Math.round(xpProgress)}% to next level</span>
+                                        <span className="text-xs sm:text-sm text-muted-foreground">{Math.round(xpProgress)}% to next level</span>
                                     </div>
                                     <Progress value={xpProgress} className="h-2" />
                                 </div>
-                                <div className="flex items-center gap-2">
+                                <div className="hidden sm:flex items-center gap-2">
                                     <Flame className="h-5 w-5 text-orange-500" />
                                     <span className="font-semibold">{currentStreak} day streak</span>
                                 </div>

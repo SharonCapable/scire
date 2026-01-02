@@ -14,6 +14,8 @@ import {
   RotateCcw,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
+  ChevronUp,
   BookOpen,
   Brain,
   FileQuestion,
@@ -143,6 +145,7 @@ export default function Learn() {
   const [speechUtterance, setSpeechUtterance] = useState<SpeechSynthesisUtterance | null>(null);
   const [showTierComplete, setShowTierComplete] = useState(false);
   const [tierCompleteShown, setTierCompleteShown] = useState(false);
+  const [isOverviewCollapsed, setIsOverviewCollapsed] = useState(true); // Collapsed by default on mobile
 
   // Time tracking
   const startTimeRef = useRef<number>(Date.now());
@@ -551,7 +554,7 @@ export default function Learn() {
           Back
         </Button>
 
-        <h1 className="text-3xl font-bold mb-2 font-heading" data-testid="text-module-title">
+        <h1 className="text-xl sm:text-3xl font-bold mb-2 font-heading" data-testid="text-module-title">
           {module.title}
         </h1>
 
@@ -619,19 +622,35 @@ export default function Learn() {
             </div>
           )}
 
-          {/* Summary Card */}
+          {/* Summary Card - Collapsible on Mobile */}
           <Card className="bg-primary/5 border-primary/20">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-lg flex items-center gap-2">
-                <BookOpen className="h-5 w-5" />
-                Module Overview
+            <CardHeader
+              className="pb-3 cursor-pointer sm:cursor-default"
+              onClick={() => setIsOverviewCollapsed(!isOverviewCollapsed)}
+            >
+              <CardTitle className="text-lg flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <BookOpen className="h-5 w-5" />
+                  <span>Module Overview</span>
+                </div>
+                <Button variant="ghost" size="sm" className="sm:hidden h-8 w-8 p-0">
+                  {isOverviewCollapsed ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
+                </Button>
               </CardTitle>
+              {/* Always show stats on mobile header */}
+              <div className="flex items-center gap-2 text-xs text-muted-foreground sm:hidden mt-2">
+                <span>{totalPages} pages</span>
+                <span>•</span>
+                <span>{module.estimatedMinutes} min</span>
+                <span>•</span>
+                <span className="text-primary font-medium">{pagesRead.size}/{totalPages} read</span>
+              </div>
             </CardHeader>
-            <CardContent>
+            <CardContent className={`${isOverviewCollapsed ? 'hidden sm:block' : 'block'}`}>
               <p className="text-sm text-muted-foreground leading-relaxed">
                 {contentSummary}
               </p>
-              <div className="flex items-center gap-4 mt-4 text-sm">
+              <div className="hidden sm:flex items-center gap-4 mt-4 text-sm">
                 <span>{totalPages} pages</span>
                 <span>•</span>
                 <span>{module.estimatedMinutes} min read</span>
@@ -689,17 +708,27 @@ export default function Learn() {
           </Card>
 
           {/* Page Navigation */}
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-2">
             <Button
               variant="outline"
               onClick={prevPage}
               disabled={currentPageIndex === 0}
+              className="flex-shrink-0"
+              size="sm"
             >
-              <ChevronLeft className="h-4 w-4 mr-1" />
-              Previous
+              <ChevronLeft className="h-4 w-4 sm:mr-1" />
+              <span className="hidden sm:inline">Previous</span>
             </Button>
 
-            <div className="flex items-center gap-1">
+            {/* Mobile: Simple page indicator */}
+            <div className="flex sm:hidden items-center gap-2 text-sm">
+              <span className="font-medium">{currentPageIndex + 1}</span>
+              <span className="text-muted-foreground">of</span>
+              <span>{totalPages}</span>
+            </div>
+
+            {/* Desktop: Page buttons */}
+            <div className="hidden sm:flex items-center gap-1">
               {Array.from({ length: Math.min(totalPages, 10) }, (_, i) => (
                 <Button
                   key={i}
@@ -715,9 +744,9 @@ export default function Learn() {
             </div>
 
             {currentPageIndex < totalPages - 1 ? (
-              <Button onClick={nextPage}>
-                Next
-                <ChevronRight className="h-4 w-4 ml-1" />
+              <Button onClick={nextPage} size="sm" className="flex-shrink-0">
+                <span className="hidden sm:inline">Next</span>
+                <ChevronRight className="h-4 w-4 sm:ml-1" />
               </Button>
             ) : userProgress?.completed && nextModule ? (
               <Button
