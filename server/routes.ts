@@ -160,6 +160,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Get modules by tier for navigation
+  app.get("/api/tiers/:tierId/modules", async (req, res) => {
+    try {
+      const modules = await storage.getModulesByTier(req.params.tierId);
+      res.json(modules);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch modules" });
+    }
+  });
+
   app.get("/api/flashcards/:moduleId", async (req, res) => {
     try {
       const flashcards = await storage.getFlashcardsByModule(req.params.moduleId);
@@ -169,9 +179,74 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/interests", async (req, res) => {
+  // Generate flashcards for a module
+  app.post("/api/modules/:moduleId/generate-flashcards", async (req, res) => {
     try {
-      const userId = "user1";
+      const moduleId = req.params.moduleId;
+
+      // Get the module content
+      const module = await storage.getModule(moduleId);
+      if (!module) {
+        return res.status(404).json({ error: "Module not found" });
+      }
+
+      // Check if flashcards already exist
+      const existingFlashcards = await storage.getFlashcardsByModule(moduleId);
+      if (existingFlashcards.length > 0) {
+        return res.json(existingFlashcards);
+      }
+
+      // Generate flashcards using AI
+      const prompt = `Based on the following educational content, generate 5-8 flashcards. Each flashcard should test understanding of key concepts.
+
+Content:
+${module.content.substring(0, 3000)}
+
+Return ONLY a valid JSON array of flashcards in this exact format, with no additional text:
+[
+  {"question": "What is...", "answer": "..."},
+  {"question": "How does...", "answer": "..."}
+]`;
+
+      const { GoogleGenerativeAI } = await import("@google/generative-ai");
+      const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
+      const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+
+      const result = await model.generateContent(prompt);
+      const responseText = result.response.text();
+
+      // Extract JSON from response
+      const jsonMatch = responseText.match(/\[[\s\S]*\]/);
+      if (!jsonMatch) {
+        console.error("Failed to parse flashcards JSON:", responseText);
+        return res.status(500).json({ error: "Failed to generate flashcards" });
+      }
+
+      const flashcardsData = JSON.parse(jsonMatch[0]);
+
+      // Save flashcards to database
+      const savedFlashcards = [];
+      for (let i = 0; i < flashcardsData.length; i++) {
+        const fc = flashcardsData[i];
+        const savedFlashcard = await storage.createFlashcard({
+          moduleId,
+          question: fc.question,
+          answer: fc.answer,
+          order: i + 1,
+        });
+        savedFlashcards.push(savedFlashcard);
+      }
+
+      res.json(savedFlashcards);
+    } catch (error) {
+      console.error("Error generating flashcards:", error);
+      res.status(500).json({ error: "Failed to generate flashcards" });
+    }
+  });
+
+  app.get("/api/interests", requireAuth, async (req, res) => {
+    try {
+      const userId = req.user!.id;
       const interest = await storage.getUserInterest(userId);
       res.json(interest || null);
     } catch (error) {
@@ -179,9 +254,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/interests", async (req, res) => {
+  app.post("/api/interests", requireAuth, async (req, res) => {
     try {
-      const userId = "user1";
+      const userId = req.user!.id;
 
       const data = {
         ...req.body,
@@ -191,6 +266,54 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(interest);
     } catch (error) {
       res.status(500).json({ error: "Failed to save interests" });
+    }
+  });
+
+  // Get all user interests (array format for multiple interests)
+  app.get("/api/interests/all", requireAuth, async (req, res) => {
+    try {
+      const userId = req.user!.id;
+      const interests = await storage.getAllUserInterests(userId);
+      res.json(interests || []);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch interests" });
+    }
+  });
+
+  // User Settings endpoints
+  app.get("/api/user/settings", requireAuth, async (req, res) => {
+    try {
+      const userId = req.user!.id;
+      let settings = await storage.getUserSettings(userId);
+
+      // Return default settings if none exist
+      if (!settings) {
+        settings = {
+          id: "",
+          userId,
+          notifyNewCourses: true,
+          notifyFlashcardReminders: true,
+          notifyAssessmentReminders: true,
+          flashcardReminderFrequency: "daily",
+          assessmentReminderFrequency: "daily",
+          preferredReminderTime: "09:00",
+          createdAt: new Date() as any,
+          updatedAt: new Date() as any,
+        };
+      }
+      res.json(settings);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch settings" });
+    }
+  });
+
+  app.put("/api/user/settings", requireAuth, async (req, res) => {
+    try {
+      const userId = req.user!.id;
+      const settings = await storage.updateUserSettings(userId, req.body);
+      res.json(settings);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update settings" });
     }
   });
 
@@ -248,14 +371,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
               // Generate content for START tier immediately, others placeholder
               let content = "Content is being generated. Please check back later.";
+              let imageUrl = undefined;
+
               if (tierData.level === 'start') {
-                content = await generateModuleContent(modData.title, modData.summary, structure.title);
+                try {
+                  const moduleContentData = await generateModuleContent(modData.title, modData.summary, structure.title);
+                  content = moduleContentData.content;
+                  const imageKeyword = moduleContentData.imageKeyword || modData.title;
+                  imageUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(imageKeyword)}?width=800&height=400&nologo=true`;
+                } catch (e) {
+                  console.error("Failed to generate content:", e);
+                  // Fallback to basic content if generation fails
+                  content = `Welcome to potential content for ${modData.title}. Generation failed, please try regenerating later.`;
+                }
               }
 
               const module = await storage.createModule({
                 tierId: tier.id,
                 title: modData.title,
                 content: content,
+                imageUrl: imageUrl,
                 order: i,
                 estimatedMinutes: modData.estimatedMinutes
               });
@@ -362,9 +497,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/enrollments", async (req, res) => {
+  app.post("/api/enrollments", requireAuth, async (req, res) => {
     try {
-      const userId = "user1";
+      const userId = req.user!.id;
       const { courseId } = req.body;
 
       const existing = await storage.getEnrollment(userId, courseId);
@@ -379,9 +514,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/enrollments/:courseId", async (req, res) => {
+  app.get("/api/enrollments/:courseId", requireAuth, async (req, res) => {
     try {
-      const userId = "user1";
+      const userId = req.user!.id;
       const enrollment = await storage.getEnrollment(userId, req.params.courseId);
       res.json(enrollment || null);
     } catch (error) {
@@ -389,9 +524,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/progress/:courseId", async (req, res) => {
+  app.get("/api/progress/:courseId", requireAuth, async (req, res) => {
     try {
-      const userId = "user1";
+      const userId = req.user!.id;
       const progressPercent = await storage.getCourseProgress(userId, req.params.courseId);
       res.json(progressPercent);
     } catch (error) {
@@ -399,9 +534,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/progress/:courseId/details", async (req, res) => {
+  app.get("/api/progress/:courseId/details", requireAuth, async (req, res) => {
     try {
-      const userId = "user1";
+      const userId = req.user!.id;
       const details = await storage.getCourseProgressDetails(userId, req.params.courseId);
       res.json(details);
     } catch (error) {
@@ -409,9 +544,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/progress/module/:moduleId", async (req, res) => {
+  app.get("/api/progress/module/:moduleId", requireAuth, async (req, res) => {
     try {
-      const userId = "user1";
+      const userId = req.user!.id;
       const progress = await storage.getUserProgress(userId, req.params.moduleId);
       res.json(progress || null);
     } catch (error) {
@@ -419,9 +554,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/progress/:moduleId", async (req, res) => {
+  app.post("/api/progress/:moduleId", requireAuth, async (req, res) => {
     try {
-      const userId = "user1";
+      const userId = req.user!.id;
 
       const data = {
         ...req.body,
@@ -435,9 +570,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/flashcard-progress", async (req, res) => {
+  app.post("/api/flashcard-progress", requireAuth, async (req, res) => {
     try {
-      const userId = "user1";
+      const userId = req.user!.id;
       const { flashcardId, correct } = req.body;
 
       const existing = await storage.getFlashcardProgress(userId, flashcardId);
@@ -465,11 +600,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/modules/:moduleId/validate", async (req, res) => {
+  // Generate flashcards for a module
+  app.post("/api/modules/:moduleId/generate-flashcards", requireAuth, async (req, res) => {
+    try {
+      const moduleId = req.params.moduleId;
+      const module = await storage.getModule(moduleId);
+
+      if (!module) {
+        return res.status(404).json({ error: "Module not found" });
+      }
+
+      // Generate flashcards using AI
+      const flashcardsData = await generateFlashcards(module.content, module.title);
+
+      const createdFlashcards = await Promise.all(
+        flashcardsData.map((f: any, index: number) => storage.createFlashcard({
+          moduleId,
+          question: f.question,
+          answer: f.answer,
+          order: index,
+        }))
+      );
+
+      res.json(createdFlashcards);
+    } catch (error: any) {
+      console.error("Flashcard generation error:", error);
+      res.status(500).json({ error: error?.message || "Failed to generate flashcards" });
+    }
+  });
+
+  app.post("/api/modules/:moduleId/validate", requireAuth, async (req, res) => {
     try {
       const { explanation } = req.body;
       const moduleId = req.params.moduleId;
-      const userId = "user1"; // TODO: Get from auth
+      const userId = req.user!.id;
 
       const module = await storage.getModule(moduleId);
       if (!module) {
@@ -499,9 +663,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Legacy endpoint - keep for backward compatibility if needed, or remove
-  app.post("/api/understanding-check", async (req, res) => {
+  // Legacy endpoint - keep for backward compatibility if needed, or remove
+  app.post("/api/understanding-check", requireAuth, async (req, res) => {
     try {
-      const userId = "user1";
+      const userId = req.user!.id;
       const { moduleId, userExplanation } = req.body;
 
       const module = await storage.getModule(moduleId);
@@ -528,33 +693,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // User Dashboard Routes
-  app.get("/api/user/enrolled-courses", optionalAuth, async (req: any, res) => {
+  app.get("/api/user/enrolled-courses", requireAuth, async (req: any, res) => {
     try {
-      console.log("[enrolled-courses] Request received");
-      console.log("[enrolled-courses] User:", req.user);
-
-      const userId = req.user?.id || "user1"; // Fallback for development
-      console.log("[enrolled-courses] Using userId:", userId);
-
+      const userId = req.user.id;
       const enrollments = await storage.getUserEnrollments(userId);
-      console.log("[enrolled-courses] Enrollments found:", enrollments.length);
 
       // Fetch full course details for each enrollment
       const coursesWithDetails = await Promise.all(
         enrollments.map(async (enrollment) => {
-          console.log("[enrolled-courses] Processing enrollment:", enrollment.id, "courseId:", enrollment.courseId);
-
           const course = await storage.getCourseWithDetails(enrollment.courseId);
           if (!course) {
-            console.log("[enrolled-courses] Course not found for:", enrollment.courseId);
             return null;
           }
 
-          console.log("[enrolled-courses] Course found:", course.id, course.title);
-
           // Calculate progress
           const progress = await storage.getCourseProgress(userId, enrollment.courseId);
-          console.log("[enrolled-courses] Progress calculated:", progress);
 
           // Get tiers with generation status
           const tiers = course.tiers?.map((tier: any) => ({
@@ -582,7 +735,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Filter out nulls and return
       const result = coursesWithDetails.filter(Boolean);
-      console.log("[enrolled-courses] Returning courses:", result.length);
       res.json(result);
     } catch (error) {
       console.error("[enrolled-courses] ERROR:", error);
@@ -591,9 +743,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/user/stats", async (req: any, res) => {
+  app.get("/api/user/stats", requireAuth, async (req: any, res) => {
     try {
-      const userId = req.user?.id || "user1"; // Fallback for development
+      const userId = req.user.id;
       const stats = await storage.getUserStats(userId);
       res.json(stats);
     } catch (error) {
@@ -624,9 +776,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // User's personalized courses endpoint
-  app.get("/api/user/personalized-courses", optionalAuth, async (req: any, res) => {
+  app.get("/api/user/personalized-courses", requireAuth, async (req: any, res) => {
     try {
-      const userId = req.user?.id || "user1";
+      const userId = req.user.id;
       const allCourses = await storage.getAllCourses();
       const personalizedCourses = allCourses.filter(
         (course) => course.isPersonalized && course.generatedForUserId === userId
@@ -638,9 +790,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Generate course from interests (Tier 1 auto-generates)
-  app.post("/api/courses/generate-from-interests", optionalAuth, async (req: any, res) => {
+  app.post("/api/courses/generate-from-interests", requireAuth, async (req: any, res) => {
     try {
-      const userId = req.user?.id || "user1";
+      const userId = req.user.id;
       const { topics, learningGoals } = req.body;
 
       if (!topics || topics.length === 0) {
@@ -683,35 +835,43 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (isStartTier) {
           for (let i = 0; i < tierData.modules.length; i++) {
             const modData = tierData.modules[i];
-            const content = await generateModuleContent(modData.title, modData.summary, structure.title);
+            try {
+              const moduleContentData = await generateModuleContent(modData.title, modData.summary, structure.title);
+              const imageKeyword = moduleContentData.imageKeyword || modData.title;
+              const imageUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(imageKeyword)}?width=800&height=400&nologo=true`;
 
-            const module = await storage.createModule({
-              tierId: tier.id,
-              title: modData.title,
-              content: content,
-              order: i,
-              estimatedMinutes: modData.estimatedMinutes
-            });
+              const module = await storage.createModule({
+                tierId: tier.id,
+                title: modData.title,
+                content: moduleContentData.content,
+                imageUrl: imageUrl,
+                order: i,
+                estimatedMinutes: modData.estimatedMinutes
+              });
 
-            // Generate assessments
-            const quiz = await generateQuiz(content, modData.title);
-            await storage.createAssessment({
-              moduleId: module.id,
-              type: "quiz",
-              title: "Quiz",
-              questions: quiz,
-              order: 0
-            });
+              // Generate assessments
+              const quiz = await generateQuiz(moduleContentData.content, modData.title);
+              await storage.createAssessment({
+                moduleId: module.id,
+                type: "quiz",
+                title: "Quiz",
+                questions: quiz,
+                order: 0
+              });
 
-            const check = await generateUnderstandingPrompt(content, modData.title);
-            await storage.createAssessment({
-              moduleId: module.id,
-              type: "understanding",
-              title: "Check",
-              prompt: check.prompt,
-              rubric: check.rubric,
-              order: 1
-            });
+              const check = await generateUnderstandingPrompt(moduleContentData.content, modData.title);
+              await storage.createAssessment({
+                moduleId: module.id,
+                type: "understanding",
+                title: "Check",
+                prompt: check.prompt,
+                rubric: check.rubric,
+                order: 1
+              });
+            } catch (error) {
+              console.error(`Failed to generate module ${modData.title}:`, error);
+              // Continue to next module even if one fails
+            }
           }
         }
       }
@@ -743,9 +903,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Generate a specific tier for a course
-  app.post("/api/courses/:id/generate-tier/:tierLevel", optionalAuth, async (req: any, res) => {
+  app.post("/api/courses/:id/generate-tier/:tierLevel", requireAuth, async (req: any, res) => {
     try {
-      const userId = req.user?.id || "user1";
+      const userId = req.user.id;
       const { id, tierLevel } = req.params;
 
       // Get course and verify ownership
@@ -796,12 +956,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Generate modules for this tier
       for (let i = 0; i < tierData.modules.length; i++) {
         const modData = tierData.modules[i];
-        const content = await generateModuleContent(modData.title, modData.summary, course.title);
+
+        let content = "";
+        let imageUrl: string | undefined;
+
+        try {
+          const moduleContentData = await generateModuleContent(modData.title, modData.summary, course.title);
+          content = moduleContentData.content;
+          const imageKeyword = moduleContentData.imageKeyword || modData.title;
+          imageUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(imageKeyword)}?width=800&height=400&nologo=true`;
+        } catch (e) {
+          console.error("Content generation failed:", e);
+          content = "Failed to generate content. Please try again.";
+        }
 
         const module = await storage.createModule({
           tierId: targetTier.id,
           title: modData.title,
           content: content,
+          imageUrl: imageUrl,
           order: i,
           estimatedMinutes: modData.estimatedMinutes
         });
@@ -854,9 +1027,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // =====================================
 
   // Get user's notifications
-  app.get("/api/notifications", optionalAuth, async (req: any, res) => {
+  app.get("/api/notifications", requireAuth, async (req: any, res) => {
     try {
-      const userId = req.user?.id || "user1";
+      const userId = req.user.id;
       const notifications = await storage.getUserNotifications(userId);
       res.json(notifications);
     } catch (error) {
@@ -865,9 +1038,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get unread count
-  app.get("/api/notifications/unread-count", optionalAuth, async (req: any, res) => {
+  app.get("/api/notifications/unread-count", requireAuth, async (req: any, res) => {
     try {
-      const userId = req.user?.id || "user1";
+      const userId = req.user.id;
       const notifications = await storage.getUserNotifications(userId);
       const unreadCount = notifications.filter(n => !n.read).length;
       res.json({ unreadCount });
@@ -877,7 +1050,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Mark notification as read
-  app.patch("/api/notifications/:id/read", optionalAuth, async (req: any, res) => {
+  app.patch("/api/notifications/:id/read", requireAuth, async (req: any, res) => {
     try {
       await storage.markNotificationRead(req.params.id);
       res.json({ success: true });
@@ -887,9 +1060,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Mark all notifications as read
-  app.post("/api/notifications/mark-all-read", optionalAuth, async (req: any, res) => {
+  app.post("/api/notifications/mark-all-read", requireAuth, async (req: any, res) => {
     try {
-      const userId = req.user?.id || "user1";
+      const userId = req.user.id;
       await storage.markAllNotificationsRead(userId);
       res.json({ success: true });
     } catch (error) {

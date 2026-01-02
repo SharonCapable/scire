@@ -1,4 +1,4 @@
-import { Home, BookOpen, Heart, LayoutDashboard, Library, GraduationCap, BarChart3, Plus, Users, User, Bell } from "lucide-react";
+import { Home, BookOpen, Heart, LayoutDashboard, Library, GraduationCap, BarChart3, Plus, Users, User, Bell, Settings } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
 import {
@@ -22,11 +22,7 @@ const studentItems = [
     url: "/dashboard",
     icon: LayoutDashboard,
   },
-  {
-    title: "My Interests",
-    url: "/interests",
-    icon: Heart,
-  },
+
   {
     title: "Browse Courses",
     url: "/courses",
@@ -54,14 +50,14 @@ const educatorItems = [
 
 const sharedItems = [
   {
-    title: "All Courses",
-    url: "/courses",
-    icon: Library,
-  },
-  {
     title: "Notifications",
     url: "/notifications",
     icon: Bell,
+  },
+  {
+    title: "Settings",
+    url: "/settings",
+    icon: Settings,
   },
 ];
 

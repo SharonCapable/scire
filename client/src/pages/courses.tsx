@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -18,6 +18,7 @@ interface CourseWithStats extends Course {
 export default function Courses() {
   const [search, setSearch] = useState("");
   const [tierFilter, setTierFilter] = useState<string>("all");
+  const [, setLocation] = useLocation();
 
   const { data: courses, isLoading } = useQuery<CourseWithStats[]>({
     queryKey: ["/api/courses"],
@@ -28,6 +29,8 @@ export default function Courses() {
       course.description.toLowerCase().includes(search.toLowerCase());
     return matchesSearch;
   }) || [];
+
+
 
   return (
     <div className="max-w-7xl mx-auto px-4 md:px-8 py-6 md:py-12">
@@ -112,8 +115,14 @@ export default function Courses() {
                 </div>
               </CardContent>
               <CardFooter>
-                <Link href={`/course/${course.id}`} className="w-full">
-                  <Button className="w-full" data-testid={`button-view-course-${course.id}`}>
+                <Link
+                  href={`/course/${course.id}`}
+                  className="w-full"
+                >
+                  <Button
+                    className="w-full"
+                    data-testid={`button-view-course-${course.id}`}
+                  >
                     View Course
                   </Button>
                 </Link>

@@ -24,6 +24,7 @@ import Admin from "@/pages/admin";
 import AdminCourses from "@/pages/admin-courses";
 import AdminCourseForm from "@/pages/admin-course-form";
 import Notifications from "@/pages/notifications";
+import SettingsPage from "@/pages/settings";
 import SSOCallback from "@/pages/sso-callback";
 import { StudentOnly, AdminOnly } from "@/components/role-guard";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -36,7 +37,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { LogOut, User, Settings } from "lucide-react";
+import { LogOut, User, Settings as SettingsIcon } from "lucide-react";
 
 // Get Clerk publishable key from environment
 const clerkPubKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
@@ -115,8 +116,8 @@ function UserMenu() {
           <User className="mr-2 h-4 w-4" />
           <span>Profile</span>
         </DropdownMenuItem>
-        <DropdownMenuItem>
-          <Settings className="mr-2 h-4 w-4" />
+        <DropdownMenuItem onClick={() => window.location.href = "/settings"}>
+          <SettingsIcon className="mr-2 h-4 w-4" />
           <span>Settings</span>
         </DropdownMenuItem>
         <DropdownMenuSeparator />
@@ -132,6 +133,15 @@ function UserMenu() {
 // App router with protected routes
 function AppRouter() {
   const { isAuthenticated, user } = useAuth();
+
+  // Wrapper for protected routes with the main layout
+  const ProtectedWithLayout = ({ children }: { children: React.ReactNode }) => (
+    <ProtectedRoute>
+      <OnboardingGuard>
+        <MainAppLayout>{children}</MainAppLayout>
+      </OnboardingGuard>
+    </ProtectedRoute>
+  );
 
   return (
     <Switch>
@@ -154,20 +164,75 @@ function AppRouter() {
       {/* SSO Callback for OAuth */}
       <Route path="/sso-callback" component={SSOCallback} />
 
-      {/* All other routes use the main app layout */}
-      <Route path="/:rest*">
-        <ProtectedRoute>
-          <OnboardingGuard>
-            <MainAppLayout />
-          </OnboardingGuard>
-        </ProtectedRoute>
+      {/* Protected routes with main layout */}
+      <Route path="/home">
+        <ProtectedWithLayout><Home /></ProtectedWithLayout>
+      </Route>
+
+      <Route path="/interests">
+        <ProtectedWithLayout>
+          <StudentOnly fallbackPath="/admin"><Interests /></StudentOnly>
+        </ProtectedWithLayout>
+      </Route>
+
+      <Route path="/courses">
+        <ProtectedWithLayout><Courses /></ProtectedWithLayout>
+      </Route>
+
+      <Route path="/course/:id">
+        <ProtectedWithLayout><CourseDetail /></ProtectedWithLayout>
+      </Route>
+
+      <Route path="/learn/:id">
+        <ProtectedWithLayout><Learn /></ProtectedWithLayout>
+      </Route>
+
+      <Route path="/dashboard">
+        <ProtectedWithLayout>
+          <StudentOnly fallbackPath="/admin"><Dashboard /></StudentOnly>
+        </ProtectedWithLayout>
+      </Route>
+
+      <Route path="/profile">
+        <ProtectedWithLayout><Profile /></ProtectedWithLayout>
+      </Route>
+
+      <Route path="/settings">
+        <ProtectedWithLayout><SettingsPage /></ProtectedWithLayout>
+      </Route>
+
+      <Route path="/admin">
+        <ProtectedWithLayout>
+          <AdminOnly fallbackPath="/dashboard"><Admin /></AdminOnly>
+        </ProtectedWithLayout>
+      </Route>
+
+      <Route path="/admin/courses">
+        <ProtectedWithLayout>
+          <AdminOnly fallbackPath="/dashboard"><AdminCourses /></AdminOnly>
+        </ProtectedWithLayout>
+      </Route>
+
+      <Route path="/admin/course/:id">
+        <ProtectedWithLayout>
+          <AdminOnly fallbackPath="/dashboard"><AdminCourseForm /></AdminOnly>
+        </ProtectedWithLayout>
+      </Route>
+
+      <Route path="/notifications">
+        <ProtectedWithLayout><Notifications /></ProtectedWithLayout>
+      </Route>
+
+      {/* 404 */}
+      <Route>
+        <ProtectedWithLayout><NotFound /></ProtectedWithLayout>
       </Route>
     </Switch>
   );
 }
 
 // Main app layout with sidebar
-function MainAppLayout() {
+function MainAppLayout({ children }: { children: React.ReactNode }) {
   const style = {
     "--sidebar-width": "16rem",
     "--sidebar-width-icon": "3rem",
@@ -189,40 +254,7 @@ function MainAppLayout() {
             </div>
           </header>
           <main className="flex-1 overflow-y-auto">
-            <Switch>
-              <Route path="/home" component={Home} />
-              <Route path="/interests">
-                <StudentOnly fallbackPath="/admin">
-                  <Interests />
-                </StudentOnly>
-              </Route>
-              <Route path="/courses" component={Courses} />
-              <Route path="/course/:id" component={CourseDetail} />
-              <Route path="/learn/:id" component={Learn} />
-              <Route path="/dashboard">
-                <StudentOnly fallbackPath="/admin">
-                  <Dashboard />
-                </StudentOnly>
-              </Route>
-              <Route path="/profile" component={Profile} />
-              <Route path="/admin">
-                <AdminOnly fallbackPath="/dashboard">
-                  <Admin />
-                </AdminOnly>
-              </Route>
-              <Route path="/admin/courses">
-                <AdminOnly fallbackPath="/dashboard">
-                  <AdminCourses />
-                </AdminOnly>
-              </Route>
-              <Route path="/admin/course/:id">
-                <AdminOnly fallbackPath="/dashboard">
-                  <AdminCourseForm />
-                </AdminOnly>
-              </Route>
-              <Route path="/notifications" component={Notifications} />
-              <Route component={NotFound} />
-            </Switch>
+            {children}
           </main>
         </div>
       </div>
