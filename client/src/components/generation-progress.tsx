@@ -164,18 +164,18 @@ export function GenerationProgress({
                                     animate={{ opacity: 1, x: 0 }}
                                     transition={{ delay: 0.5 + index * 0.1 }}
                                     className={`flex items-center gap-4 p-4 rounded-xl transition-all ${step.status === 'active'
-                                            ? 'bg-primary/10 border border-primary/20'
-                                            : step.status === 'completed'
-                                                ? 'bg-emerald-500/10'
-                                                : 'bg-muted/50'
+                                        ? 'bg-primary/10 border border-primary/20'
+                                        : step.status === 'completed'
+                                            ? 'bg-emerald-500/10'
+                                            : 'bg-muted/50'
                                         }`}
                                 >
                                     <div
                                         className={`flex-shrink-0 w-10 h-10 rounded-lg flex items-center justify-center ${step.status === 'active'
-                                                ? 'bg-primary text-primary-foreground'
-                                                : step.status === 'completed'
-                                                    ? 'bg-emerald-500 text-white'
-                                                    : 'bg-muted text-muted-foreground'
+                                            ? 'bg-primary text-primary-foreground'
+                                            : step.status === 'completed'
+                                                ? 'bg-emerald-500 text-white'
+                                                : 'bg-muted text-muted-foreground'
                                             }`}
                                     >
                                         {step.status === 'active' ? (
@@ -203,10 +203,16 @@ export function GenerationProgress({
                             initial={{ opacity: 0, y: 20 }}
                             animate={{ opacity: 1, y: 0 }}
                             transition={{ delay: 0.5 }}
-                            className="mt-8"
+                            className="mt-8 space-y-3"
                         >
-                            <p className="text-muted-foreground">
-                                Redirecting you to your dashboard...
+                            <p className="text-lg font-medium text-emerald-500">
+                                ✓ Your course is ready!
+                            </p>
+                            <p className="text-muted-foreground text-sm">
+                                Taking you to your dashboard in a moment...
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                                Your course will appear in "Enrolled Courses"
                             </p>
                         </motion.div>
                     )}

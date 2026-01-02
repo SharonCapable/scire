@@ -151,25 +151,25 @@ export default function Dashboard() {
             />
 
             <motion.div
-                className="max-w-7xl mx-auto px-4 md:px-8 py-6 md:py-12"
+                className="max-w-7xl mx-auto px-3 sm:px-4 md:px-8 py-4 sm:py-6 md:py-12 overflow-x-hidden"
                 variants={containerVariants}
                 initial="hidden"
                 animate="visible"
             >
                 {/* Header */}
-                <motion.div className="mb-8" variants={itemVariants}>
-                    <div className="flex items-center justify-between mb-4">
-                        <div>
-                            <div className="flex items-center gap-3 mb-2">
-                                <div className="p-2 rounded-lg bg-primary/10">
-                                    <GraduationCap className="h-6 w-6 text-primary" />
+                <motion.div className="mb-6 sm:mb-8" variants={itemVariants}>
+                    <div className="flex items-start sm:items-center justify-between mb-3 sm:mb-4 gap-2">
+                        <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2 sm:gap-3 mb-1 sm:mb-2">
+                                <div className="p-1.5 sm:p-2 rounded-lg bg-primary/10 flex-shrink-0">
+                                    <GraduationCap className="h-5 w-5 sm:h-6 sm:w-6 text-primary" />
                                 </div>
-                                <h1 className="text-3xl md:text-4xl font-bold font-heading">
+                                <h1 className="text-xl sm:text-3xl md:text-4xl font-bold font-heading truncate">
                                     My Dashboard
                                 </h1>
                             </div>
-                            <p className="text-muted-foreground">
-                                Welcome back, {user?.name || user?.username}! Continue your learning journey.
+                            <p className="text-sm sm:text-base text-muted-foreground truncate">
+                                Welcome back, {user?.name?.split(' ')[0] || user?.username}!
                             </p>
                         </div>
                         <div className="flex items-center gap-2">
@@ -215,44 +215,44 @@ export default function Dashboard() {
                 </motion.div>
 
                 {/* Stats Grid */}
-                <motion.div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8" variants={itemVariants}>
+                <motion.div className="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-4 mb-6 sm:mb-8" variants={itemVariants}>
                     <Card className="hover:shadow-md transition-shadow">
-                        <CardHeader className="pb-2">
-                            <CardDescription className="flex items-center gap-2">
-                                <BookOpen className="h-4 w-4" />
-                                Enrolled Courses
+                        <CardHeader className="p-3 sm:p-4 pb-2">
+                            <CardDescription className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm">
+                                <BookOpen className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
+                                <span className="truncate">Courses</span>
                             </CardDescription>
-                            <CardTitle className="text-3xl">{totalCourses}</CardTitle>
+                            <CardTitle className="text-2xl sm:text-3xl">{totalCourses}</CardTitle>
                         </CardHeader>
                     </Card>
 
                     <Card className="hover:shadow-md transition-shadow">
-                        <CardHeader className="pb-2">
-                            <CardDescription className="flex items-center gap-2">
-                                <Target className="h-4 w-4" />
-                                Completed Modules
+                        <CardHeader className="p-3 sm:p-4 pb-2">
+                            <CardDescription className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm">
+                                <Target className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
+                                <span className="truncate">Modules</span>
                             </CardDescription>
-                            <CardTitle className="text-3xl">{stats?.completedModules || 0}</CardTitle>
+                            <CardTitle className="text-2xl sm:text-3xl">{stats?.completedModules || 0}</CardTitle>
                         </CardHeader>
                     </Card>
 
                     <Card className="hover:shadow-md transition-shadow">
-                        <CardHeader className="pb-2">
-                            <CardDescription className="flex items-center gap-2">
-                                <Clock className="h-4 w-4" />
-                                Hours Learned
+                        <CardHeader className="p-3 sm:p-4 pb-2">
+                            <CardDescription className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm">
+                                <Clock className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
+                                <span className="truncate">Hours</span>
                             </CardDescription>
-                            <CardTitle className="text-3xl">{Math.floor((stats?.totalMinutes || 0) / 60)}h</CardTitle>
+                            <CardTitle className="text-2xl sm:text-3xl">{Math.floor((stats?.totalMinutes || 0) / 60)}h</CardTitle>
                         </CardHeader>
                     </Card>
 
                     <Card className="hover:shadow-md transition-shadow">
-                        <CardHeader className="pb-2">
-                            <CardDescription className="flex items-center gap-2">
-                                <Heart className="h-4 w-4" />
-                                My Interests
+                        <CardHeader className="p-3 sm:p-4 pb-2">
+                            <CardDescription className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm">
+                                <Heart className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
+                                <span className="truncate">Interests</span>
                             </CardDescription>
-                            <CardTitle className="text-3xl">{interests?.length || 0}</CardTitle>
+                            <CardTitle className="text-2xl sm:text-3xl">{interests?.length || 0}</CardTitle>
                         </CardHeader>
                     </Card>
                 </motion.div>

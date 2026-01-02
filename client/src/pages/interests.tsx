@@ -74,10 +74,10 @@ export default function Interests() {
       setGenerationStep(0);
       setGeneratedCourseTitle(topics[0] || "Your Course");
 
-      // Simulate step progress while waiting for API
+      // Simulate step progress - 15 seconds per step for better UX
       const stepInterval = setInterval(() => {
         setGenerationStep((prev) => Math.min(prev + 1, 4));
-      }, 4000);
+      }, 15000);
 
       try {
         // Generate course from interests
@@ -87,7 +87,7 @@ export default function Interests() {
         });
 
         clearInterval(stepInterval);
-        setGenerationStep(5);
+        setGenerationStep(5); // Mark as complete
         return result;
       } catch (error) {
         clearInterval(stepInterval);
@@ -98,17 +98,17 @@ export default function Interests() {
       queryClient.invalidateQueries({ queryKey: ["/api/interests"] });
       queryClient.invalidateQueries({ queryKey: ["/api/user/enrolled-courses"] });
 
-      // Wait for completion animation then redirect
+      // Wait longer for user to see the completion message
       setTimeout(() => {
         setShowGeneration(false);
         toast({
-          title: "Course Created!",
-          description: "Your personalized course is ready. Tier 1 is available to start learning!",
+          title: "🎉 Course Created!",
+          description: "Your personalized course is ready! Head to your dashboard to start learning.",
         });
 
         // Redirect to dashboard
         setLocation("/dashboard");
-      }, 2500);
+      }, 5000); // 5 seconds to read the completion message
     },
     onError: (error: any) => {
       setShowGeneration(false);
