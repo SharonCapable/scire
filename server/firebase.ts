@@ -16,8 +16,18 @@ if (!getApps().length) {
             try {
                 serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
             } catch (parseError) {
-                console.error('Failed to parse FIREBASE_SERVICE_ACCOUNT:', parseError);
-                throw new Error('FIREBASE_SERVICE_ACCOUNT is not valid JSON. Check your environment variable in Vercel.');
+                console.error('Failed to parse FIREBASE_SERVICE_ACCOUNT using simple JSON.parse');
+
+                // Try to handle common env var formatting issues (e.g. escaped newlines)
+                try {
+                    const sanitized = process.env.FIREBASE_SERVICE_ACCOUNT.replace(/\\n/g, '\n');
+                    serviceAccount = JSON.parse(sanitized);
+                    console.log('Successfully parsed FIREBASE_SERVICE_ACCOUNT after sanitizing newlines');
+                } catch (retryError) {
+                    console.error('Failed to parse FIREBASE_SERVICE_ACCOUNT after sanitization:', retryError);
+                    console.error('FIREBASE_SERVICE_ACCOUNT first 50 chars:', process.env.FIREBASE_SERVICE_ACCOUNT.substring(0, 50));
+                    throw new Error('FIREBASE_SERVICE_ACCOUNT is not valid JSON. Ensure you pasted the full content of the service account JSON file into the Vercel environment variable.');
+                }
             }
 
             if (!serviceAccount.project_id || !serviceAccount.private_key || !serviceAccount.client_email) {
