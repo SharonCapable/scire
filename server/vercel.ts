@@ -6,6 +6,7 @@ import fs from "fs";
 
 // Register API routes
 console.log("Registering routes...");
+// We needs to await this at the top level for Vercel
 await registerRoutes(app);
 console.log("Routes registered.");
 
@@ -14,16 +15,6 @@ const distPath = path.join(process.cwd(), "dist", "public");
 
 if (fs.existsSync(distPath)) {
     app.use(express.static(distPath));
-
-    // Hande SPA routing
-    app.use("*", (_req, res) => {
-        const indexPath = path.join(distPath, "index.html");
-        if (fs.existsSync(indexPath)) {
-            res.sendFile(indexPath);
-        } else {
-            res.status(404).send("Refreshed (Client build not found)");
-        }
-    });
 }
 
 export default app;
