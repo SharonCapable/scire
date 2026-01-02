@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, ReactNode } from "react";
+import { createContext, useContext, useState, useEffect, useRef, ReactNode } from "react";
 import { useLocation } from "wouter";
 import { useAuth as useClerkAuth, useUser } from "@clerk/clerk-react";
 
@@ -37,14 +37,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const [authMode, setAuthMode] = useState<"signin" | "signup">("signin");
     const [, setLocation] = useLocation();
 
+    // Track if we've already synced for this session to prevent repeated syncs
+    const hasSyncedRef = useRef(false);
+    const lastClerkIdRef = useRef<string | null>(null);
+
     // Sync user with backend when Clerk auth state changes
     useEffect(() => {
         async function syncUser() {
             if (!isLoaded || !isUserLoaded) return;
 
             if (isSignedIn && clerkUser) {
-                // If we already have the user and the ID matches, skip sync
-                if (user && user.id === clerkUser.id) {
+                // Skip if we've already synced this user
+                if (hasSyncedRef.current && lastClerkIdRef.current === clerkUser.id) {
                     setIsLoading(false);
                     return;
                 }
@@ -63,23 +67,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                         const data = await response.json();
                         const syncedUser = data.user;
 
-                        // Only update state if data actually changed
-                        if (JSON.stringify(user) !== JSON.stringify(syncedUser)) {
-                            setUser(syncedUser);
+                        // Mark as synced
+                        hasSyncedRef.current = true;
+                        lastClerkIdRef.current = clerkUser.id;
 
-                            // Close modal on successful auth
-                            setShowAuthModal(false);
+                        setUser(syncedUser);
 
-                            // Redirect logic only on initial load/login
-                            const currentPath = window.location.pathname;
-                            if (!syncedUser.onboardingCompleted && !syncedUser.role) {
-                                if (currentPath !== "/onboarding") {
-                                    setLocation("/onboarding");
-                                }
-                            } else if (currentPath === "/" || currentPath === "") {
-                                const targetPath = syncedUser.role === "educator" ? "/admin" : "/dashboard";
-                                setLocation(targetPath);
+                        // Close modal on successful auth
+                        setShowAuthModal(false);
+
+                        // Redirect logic only on initial load/login
+                        const currentPath = window.location.pathname;
+                        if (!syncedUser.onboardingCompleted && !syncedUser.role) {
+                            if (currentPath !== "/onboarding") {
+                                setLocation("/onboarding");
                             }
+                        } else if (currentPath === "/" || currentPath === "") {
+                            const targetPath = syncedUser.role === "educator" ? "/admin" : "/dashboard";
+                            setLocation(targetPath);
                         }
                     } else {
                         console.error("Failed to sync user with backend");
@@ -90,6 +95,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                     setUser(null);
                 }
             } else if (!isSignedIn) {
+                // Reset sync state on logout
+                hasSyncedRef.current = false;
+                lastClerkIdRef.current = null;
                 if (user) setUser(null);
             }
 
@@ -97,7 +105,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
 
         syncUser();
-    }, [isLoaded, isUserLoaded, isSignedIn, clerkUser?.id, getToken]);
+    }, [isLoaded, isUserLoaded, isSignedIn, clerkUser?.id]);
 
     const logout = async () => {
         try {

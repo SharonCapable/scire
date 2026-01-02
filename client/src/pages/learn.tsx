@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useParams, useLocation } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -20,16 +20,18 @@ import {
   ClipboardCheck,
   Sparkles,
   Loader2,
-  Volume2,
-  SkipForward,
   VolumeX,
   Pause,
   Play,
   Lock,
+  Trophy,
+  ArrowRight,
+  Home,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import ReactMarkdown from "react-markdown";
-import type { Module, Flashcard, UserProgress, Assessment } from "@shared/types";
+import confetti from "canvas-confetti";
+import type { Module, Flashcard, UserProgress, Assessment, Tier } from "@shared/types";
 import { QuizComponent } from "@/components/assessment/QuizComponent";
 import { UnderstandingCheckComponent } from "@/components/assessment/UnderstandingCheckComponent";
 
@@ -39,13 +41,13 @@ function splitContentIntoPages(content: string): string[] {
 
   // Clean content artifacts
   const cleanContent = content
-    .replace(/^(\*\*\*|\+\+\+|---)?\s*markdown\s*/i, "") // Remove markdown block indicators
-    .replace(/^#+\s*Module:.*$/im, "") // Remove duplicate module titles if present
+    .replace(/^(\*\*\*|\+\+\+|---)?s*markdowns*/i, "") // Remove markdown block indicators
+    .replace(/^#+s*Module:.*$/im, "") // Remove duplicate module titles if present
     .replace(/^Welcome to the.*module!/im, "") // Remove generic welcome messages if they duplicate intro
     .trim();
 
   // Split by paragraphs (double newlines or <br><br>)
-  const paragraphs = cleanContent.split(/\n\n|\<br\/?\>\s*\<br\/?\>/gi).filter(p => p.trim());
+  const paragraphs = cleanContent.split(/\n\n|\\<br\/?\\>\s*\\<br\/?\\>/gi).filter(p => p.trim());
 
   const pages: string[] = [];
   let currentPage = "";
@@ -73,7 +75,6 @@ function splitContentIntoPages(content: string): string[] {
 }
 
 // Generate a brief summary from content
-// Generate a brief summary from content
 function generateSummary(content: string): string {
   if (!content) return "";
 
@@ -95,6 +96,37 @@ function generateSummary(content: string): string {
   return words.join(" ") + (words.length >= 150 ? "..." : "");
 }
 
+// Confetti celebration
+function triggerConfetti() {
+  const duration = 3000;
+  const animationEnd = Date.now() + duration;
+  const defaults = { startVelocity: 30, spread: 360, ticks: 60, zIndex: 9999 };
+
+  function randomInRange(min: number, max: number) {
+    return Math.random() * (max - min) + min;
+  }
+
+  const interval: ReturnType<typeof setInterval> = setInterval(function () {
+    const timeLeft = animationEnd - Date.now();
+
+    if (timeLeft <= 0) {
+      return clearInterval(interval);
+    }
+
+    const particleCount = 50 * (timeLeft / duration);
+    confetti({
+      ...defaults,
+      particleCount,
+      origin: { x: randomInRange(0.1, 0.3), y: Math.random() - 0.2 }
+    });
+    confetti({
+      ...defaults,
+      particleCount,
+      origin: { x: randomInRange(0.7, 0.9), y: Math.random() - 0.2 }
+    });
+  }, 250);
+}
+
 export default function Learn() {
   const params = useParams<{ id: string }>();
   const [, setLocation] = useLocation();
@@ -109,6 +141,8 @@ export default function Learn() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [speechUtterance, setSpeechUtterance] = useState<SpeechSynthesisUtterance | null>(null);
+  const [showTierComplete, setShowTierComplete] = useState(false);
+  const [tierCompleteShown, setTierCompleteShown] = useState(false);
 
   const { data: module, isLoading: moduleLoading } = useQuery<Module>({
     queryKey: ["/api/modules", moduleId],
@@ -121,6 +155,11 @@ export default function Learn() {
       window.speechSynthesis.cancel();
     };
   }, []);
+
+  // Split content into pages
+  const contentPages = useMemo(() => {
+    return splitContentIntoPages(module?.content || "");
+  }, [module?.content]);
 
   const toggleSpeech = () => {
     if (isPlaying && !isPaused) {
@@ -175,16 +214,23 @@ export default function Learn() {
     enabled: !!moduleId,
   });
 
-  const { data: userProgress } = useQuery<UserProgress>({
+  const { data: userProgress, refetch: refetchProgress } = useQuery<UserProgress>({
     queryKey: ["/api/progress/module", moduleId],
     enabled: !!moduleId,
+    refetchInterval: 5000, // Poll every 5 seconds to keep progress in sync
   });
 
   const isModuleCompleted = !!userProgress?.completed;
 
   // Get sibling modules for next module navigation
-  const { data: siblingModules } = useQuery<Module[]>({
+  const { data: siblingModules, refetch: refetchSiblings } = useQuery<Module[]>({
     queryKey: ["/api/tiers", module?.tierId, "modules"],
+    enabled: !!module?.tierId,
+  });
+
+  // Get tier info for course navigation
+  const { data: tierInfo } = useQuery<Tier>({
+    queryKey: ["/api/tiers", module?.tierId],
     enabled: !!module?.tierId,
   });
 
@@ -194,10 +240,32 @@ export default function Learn() {
     ? siblingModules[currentModuleIndex + 1]
     : undefined;
 
-  // Split content into pages
-  const contentPages = useMemo(() => {
-    return splitContentIntoPages(module?.content || "");
-  }, [module?.content]);
+  // Check if this is the last module in the tier
+  const isLastModuleInTier = currentModuleIndex >= 0 && siblingModules
+    ? currentModuleIndex === siblingModules.length - 1
+    : false;
+
+  // Check if all modules in tier are complete
+  const { data: tierProgress } = useQuery<UserProgress[]>({
+    queryKey: [`/api/progress/${tierInfo?.courseId}/details`],
+    enabled: !!tierInfo?.courseId,
+  });
+
+  const allTierModulesComplete = useMemo(() => {
+    if (!siblingModules || !tierProgress) return false;
+    return siblingModules.every(mod =>
+      tierProgress.some(p => p.moduleId === mod.id && p.completed)
+    );
+  }, [siblingModules, tierProgress]);
+
+  // Trigger confetti when tier is complete for the first time
+  useEffect(() => {
+    if (allTierModulesComplete && isModuleCompleted && isLastModuleInTier && !tierCompleteShown) {
+      setTierCompleteShown(true);
+      setShowTierComplete(true);
+      triggerConfetti();
+    }
+  }, [allTierModulesComplete, isModuleCompleted, isLastModuleInTier, tierCompleteShown]);
 
   const totalPages = contentPages.length;
   const contentSummary = useMemo(() => {
@@ -224,7 +292,12 @@ export default function Learn() {
       return await apiRequest("POST", `/api/progress/${moduleId}`, data);
     },
     onSuccess: () => {
+      // Immediately refetch progress to show updated state
+      refetchProgress();
       queryClient.invalidateQueries({ queryKey: ["/api/progress/module", moduleId] });
+      if (tierInfo?.courseId) {
+        queryClient.invalidateQueries({ queryKey: [`/api/progress/${tierInfo.courseId}/details`] });
+      }
     },
   });
 
@@ -272,13 +345,22 @@ export default function Learn() {
     }
   };
 
-  const handleCompleteModule = () => {
+  const handleCompleteModule = useCallback(() => {
     updateProgressMutation.mutate({ progressPercent: 100, completed: true });
-    toast({
-      title: "Module completed!",
-      description: "Great work! Move on to the next module when you're ready.",
-    });
-  };
+
+    // Check if this completes the tier
+    if (isLastModuleInTier) {
+      toast({
+        title: "🎉 Tier Complete!",
+        description: "Amazing work! You've completed all modules in this tier.",
+      });
+    } else {
+      toast({
+        title: "Module completed!",
+        description: "Great work! Move on to the next module when you're ready.",
+      });
+    }
+  }, [isLastModuleInTier, toast, updateProgressMutation]);
 
   const nextPage = () => {
     if (currentPageIndex < totalPages - 1) {
@@ -321,6 +403,50 @@ export default function Learn() {
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-8">
+      {/* Tier Complete Celebration Modal */}
+      {showTierComplete && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <Card className="max-w-md mx-4 text-center">
+            <CardHeader>
+              <div className="mx-auto mb-4 p-4 rounded-full bg-gradient-to-r from-amber-400 to-orange-500">
+                <Trophy className="h-12 w-12 text-white" />
+              </div>
+              <CardTitle className="text-2xl">🎉 Tier Complete!</CardTitle>
+              <CardDescription>
+                Congratulations! You've completed all modules in this tier.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                You can now unlock the next tier to continue your learning journey.
+              </p>
+              <div className="flex flex-col gap-2">
+                <Button
+                  onClick={() => {
+                    setShowTierComplete(false);
+                    if (tierInfo?.courseId) {
+                      setLocation(`/course/${tierInfo.courseId}`);
+                    }
+                  }}
+                  className="gap-2"
+                >
+                  <ArrowRight className="h-4 w-4" />
+                  Go to Course & Unlock Next Tier
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => setShowTierComplete(false)}
+                  className="gap-2"
+                >
+                  <Home className="h-4 w-4" />
+                  Stay Here
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
       {/* Header */}
       <div className="mb-6">
         <Button
@@ -508,7 +634,15 @@ export default function Learn() {
                 className="bg-primary hover:bg-primary/90"
               >
                 Next Module
-                <SkipForward className="ml-2 h-4 w-4" />
+                <ArrowRight className="ml-2 h-4 w-4" />
+              </Button>
+            ) : userProgress?.completed && isLastModuleInTier ? (
+              <Button
+                onClick={() => tierInfo?.courseId && setLocation(`/course/${tierInfo.courseId}`)}
+                className="bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600"
+              >
+                <Trophy className="mr-2 h-4 w-4" />
+                View Course & Unlock Next Tier
               </Button>
             ) : (
               <Button
