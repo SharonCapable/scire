@@ -21,8 +21,6 @@ firebase-service-account.json
 
 # Build outputs
 server/public
-api/index.js
-api/index.js.maphmmm
 *.tar.gz
 
 # OS files
