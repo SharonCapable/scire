@@ -1,34 +1,171 @@
-import { useState } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { useRoute, useLocation } from "wouter";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useParams, useLocation } from "wouter";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { ArrowLeft, CheckCircle2, RotateCcw } from "lucide-react";
+import {
+  ArrowLeft,
+  CheckCircle2,
+  RotateCcw,
+  ChevronLeft,
+  ChevronRight,
+  BookOpen,
+  Brain,
+  FileQuestion,
+  ClipboardCheck,
+  Sparkles,
+  Loader2,
+  Volume2,
+  SkipForward,
+  VolumeX,
+  Pause,
+  Play,
+  Lock,
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import ReactMarkdown from "react-markdown";
 import type { Module, Flashcard, UserProgress, Assessment } from "@shared/types";
 import { QuizComponent } from "@/components/assessment/QuizComponent";
 import { UnderstandingCheckComponent } from "@/components/assessment/UnderstandingCheckComponent";
 
+// Split content into pages (approximately 500 words per page)
+function splitContentIntoPages(content: string): string[] {
+  if (!content) return [""];
+
+  // Clean content artifacts
+  const cleanContent = content
+    .replace(/^(\*\*\*|\+\+\+|---)?\s*markdown\s*/i, "") // Remove markdown block indicators
+    .replace(/^#+\s*Module:.*$/im, "") // Remove duplicate module titles if present
+    .replace(/^Welcome to the.*module!/im, "") // Remove generic welcome messages if they duplicate intro
+    .trim();
+
+  // Split by paragraphs (double newlines or <br><br>)
+  const paragraphs = cleanContent.split(/\n\n|\<br\/?\>\s*\<br\/?\>/gi).filter(p => p.trim());
+
+  const pages: string[] = [];
+  let currentPage = "";
+  let wordCount = 0;
+  const wordsPerPage = 400;
+
+  for (const paragraph of paragraphs) {
+    const paragraphWords = paragraph.split(/\s+/).length;
+
+    if (wordCount + paragraphWords > wordsPerPage && currentPage) {
+      pages.push(currentPage.trim());
+      currentPage = paragraph;
+      wordCount = paragraphWords;
+    } else {
+      currentPage += (currentPage ? "\n\n" : "") + paragraph;
+      wordCount += paragraphWords;
+    }
+  }
+
+  if (currentPage.trim()) {
+    pages.push(currentPage.trim());
+  }
+
+  return pages.length > 0 ? pages : [""];
+}
+
+// Generate a brief summary from content
+// Generate a brief summary from content
+function generateSummary(content: string): string {
+  if (!content) return "";
+
+  // Strip markdown formatting
+  const plainText = content
+    .replace(/#{1,6}\s/g, "") // Headers
+    .replace(/(\*\*|__)(.*?)\1/g, "$2") // Bold
+    .replace(/(\*|_)(.*?)\1/g, "$2") // Italic
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1") // Links
+    .replace(/`([^`]+)`/g, "$1") // Inline code
+    .replace(/^\s*[-+*]\s/gm, "") // List items
+    .replace(/^\s*>\s/gm, "") // Blockquotes
+    .replace(/!\[.*?\]\(.*?\)/g, "") // Images
+    .replace(/\n+/g, " ") // Collapse newlines
+    .trim();
+
+  // Take the first 150 words as a summary
+  const words = plainText.split(/\s+/).slice(0, 150);
+  return words.join(" ") + (words.length >= 150 ? "..." : "");
+}
+
 export default function Learn() {
-  const [, params] = useRoute("/learn/:id");
+  const params = useParams<{ id: string }>();
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const moduleId = params?.id;
 
   const [currentFlashcardIndex, setCurrentFlashcardIndex] = useState(0);
   const [showAnswer, setShowAnswer] = useState(false);
+  const [currentPageIndex, setCurrentPageIndex] = useState(0);
+  const [pagesRead, setPagesRead] = useState<Set<number>>(new Set());
+  const [isGeneratingFlashcards, setIsGeneratingFlashcards] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
+  const [speechUtterance, setSpeechUtterance] = useState<SpeechSynthesisUtterance | null>(null);
 
   const { data: module, isLoading: moduleLoading } = useQuery<Module>({
     queryKey: ["/api/modules", moduleId],
     enabled: !!moduleId,
   });
 
-  const { data: flashcards, isLoading: flashcardsLoading } = useQuery<Flashcard[]>({
+  // Handle TTS cleanup
+  useEffect(() => {
+    return () => {
+      window.speechSynthesis.cancel();
+    };
+  }, []);
+
+  const toggleSpeech = () => {
+    if (isPlaying && !isPaused) {
+      window.speechSynthesis.pause();
+      setIsPaused(true);
+      setIsPlaying(false);
+    } else if (isPaused) {
+      window.speechSynthesis.resume();
+      setIsPaused(false);
+      setIsPlaying(true);
+    } else {
+      // Start speaking current page
+      const textToSpeak = contentPages[currentPageIndex]?.replace(/<[^>]*>/g, '') || "";
+      const utterance = new SpeechSynthesisUtterance(textToSpeak);
+
+      utterance.onend = () => {
+        setIsPlaying(false);
+        setIsPaused(false);
+      };
+
+      utterance.onerror = (e) => {
+        console.error("Speech error:", e);
+        setIsPlaying(false);
+        setIsPaused(false);
+      };
+
+      setSpeechUtterance(utterance);
+      window.speechSynthesis.speak(utterance);
+      setIsPlaying(true);
+      setIsPaused(false);
+    }
+  };
+
+  const stopSpeech = () => {
+    window.speechSynthesis.cancel();
+    setIsPlaying(false);
+    setIsPaused(false);
+  };
+
+  // Stop speech when changing pages
+  useEffect(() => {
+    stopSpeech();
+  }, [currentPageIndex]);
+
+  const { data: flashcards, isLoading: flashcardsLoading, refetch: refetchFlashcards } = useQuery<Flashcard[]>({
     queryKey: ["/api/flashcards", moduleId],
     enabled: !!moduleId,
   });
@@ -43,6 +180,45 @@ export default function Learn() {
     enabled: !!moduleId,
   });
 
+  const isModuleCompleted = !!userProgress?.completed;
+
+  // Get sibling modules for next module navigation
+  const { data: siblingModules } = useQuery<Module[]>({
+    queryKey: ["/api/tiers", module?.tierId, "modules"],
+    enabled: !!module?.tierId,
+  });
+
+  // Find current and next module
+  const currentModuleIndex = siblingModules?.findIndex(m => m.id === moduleId) ?? -1;
+  const nextModule = currentModuleIndex >= 0 && siblingModules
+    ? siblingModules[currentModuleIndex + 1]
+    : undefined;
+
+  // Split content into pages
+  const contentPages = useMemo(() => {
+    return splitContentIntoPages(module?.content || "");
+  }, [module?.content]);
+
+  const totalPages = contentPages.length;
+  const contentSummary = useMemo(() => {
+    return generateSummary(module?.content || "");
+  }, [module?.content]);
+
+  // Track page reading
+  useEffect(() => {
+    if (currentPageIndex >= 0) {
+      setPagesRead(prev => {
+        const newSet = new Set(Array.from(prev));
+        newSet.add(currentPageIndex);
+        return newSet;
+      });
+    }
+  }, [currentPageIndex]);
+
+  // Calculate reading progress
+  const readingProgress = totalPages > 0 ? Math.round((pagesRead.size / totalPages) * 100) : 0;
+  const allPagesRead = pagesRead.size >= totalPages;
+
   const updateProgressMutation = useMutation({
     mutationFn: async (data: { progressPercent: number; completed?: boolean }) => {
       return await apiRequest("POST", `/api/progress/${moduleId}`, data);
@@ -55,6 +231,29 @@ export default function Learn() {
   const recordFlashcardMutation = useMutation({
     mutationFn: async (data: { flashcardId: string; correct: boolean }) => {
       return await apiRequest("POST", "/api/flashcard-progress", data);
+    },
+  });
+
+  const generateFlashcardsMutation = useMutation({
+    mutationFn: async () => {
+      setIsGeneratingFlashcards(true);
+      return await apiRequest("POST", `/api/modules/${moduleId}/generate-flashcards`, {});
+    },
+    onSuccess: () => {
+      setIsGeneratingFlashcards(false);
+      refetchFlashcards();
+      toast({
+        title: "Flashcards Generated!",
+        description: "Your flashcards are ready for practice.",
+      });
+    },
+    onError: () => {
+      setIsGeneratingFlashcards(false);
+      toast({
+        title: "Error",
+        description: "Failed to generate flashcards. Please try again.",
+        variant: "destructive",
+      });
     },
   });
 
@@ -81,6 +280,21 @@ export default function Learn() {
     });
   };
 
+  const nextPage = () => {
+    if (currentPageIndex < totalPages - 1) {
+      setCurrentPageIndex(prev => prev + 1);
+      // Update progress as user reads
+      const newProgress = Math.round(((currentPageIndex + 2) / totalPages) * 100);
+      updateProgressMutation.mutate({ progressPercent: Math.min(newProgress, 99) });
+    }
+  };
+
+  const prevPage = () => {
+    if (currentPageIndex > 0) {
+      setCurrentPageIndex(prev => prev - 1);
+    }
+  };
+
   if (moduleLoading) {
     return (
       <div className="max-w-4xl mx-auto px-4 py-8">
@@ -100,14 +314,14 @@ export default function Learn() {
     );
   }
 
-  const progressPercent = userProgress?.progressPercent || 0;
+  const progressPercent = userProgress?.progressPercent || readingProgress;
   const currentFlashcard = flashcards?.[currentFlashcardIndex];
-
   const quiz = assessments?.find(a => a.type === 'quiz');
   const understandingCheck = assessments?.find(a => a.type === 'understanding');
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-8">
+      {/* Header */}
       <div className="mb-6">
         <Button
           variant="ghost"
@@ -124,8 +338,8 @@ export default function Learn() {
           {module.title}
         </h1>
 
-        <div className="flex items-center gap-4">
-          <div className="flex-1">
+        <div className="flex items-center gap-4 flex-wrap">
+          <div className="flex-1 min-w-[200px]">
             <div className="flex items-center justify-between mb-1">
               <span className="text-sm text-muted-foreground">Progress</span>
               <span className="text-sm font-medium">{progressPercent}%</span>
@@ -133,59 +347,228 @@ export default function Learn() {
             <Progress value={progressPercent} className="h-2" />
           </div>
           <Badge variant="outline">{module.estimatedMinutes} min</Badge>
+          {userProgress?.completed && (
+            <Badge className="bg-emerald-500">
+              <CheckCircle2 className="h-3 w-3 mr-1" />
+              Completed
+            </Badge>
+          )}
         </div>
       </div>
 
+      {/* Tabs */}
       <Tabs defaultValue="content" className="space-y-6">
-        <TabsList className="grid w-full grid-cols-4">
-          <TabsTrigger value="content" data-testid="tab-content">Content</TabsTrigger>
-          <TabsTrigger value="flashcards" data-testid="tab-flashcards">
-            Flashcards {(flashcards?.length || 0) > 0 && `(${flashcards?.length})`}
+        <TabsList className="flex w-full items-center p-1 bg-muted rounded-xl overflow-x-auto">
+          <TabsTrigger value="content" data-testid="tab-content" className="gap-2">
+            <BookOpen className="h-4 w-4" />
+            <span className="hidden sm:inline">Content</span>
           </TabsTrigger>
-          <TabsTrigger value="quiz" data-testid="tab-quiz">Quiz</TabsTrigger>
-          <TabsTrigger value="understanding" data-testid="tab-understanding">Check</TabsTrigger>
+
+          <div className="mx-2 h-4 w-px bg-border/50 self-center" />
+
+          <TabsTrigger value="flashcards" disabled={!isModuleCompleted} data-testid="tab-flashcards" className="gap-2" title={!isModuleCompleted ? "Complete module to unlock" : "Flashcards"}>
+            {!isModuleCompleted ? <Lock className="h-4 w-4" /> : <Brain className="h-4 w-4" />}
+            <span className="hidden sm:inline">Flashcards</span>
+            {(flashcards?.length || 0) > 0 && (
+              <Badge variant="secondary" className="ml-1 text-xs">
+                {flashcards?.length}
+              </Badge>
+            )}
+          </TabsTrigger>
+          <TabsTrigger value="quiz" disabled={!isModuleCompleted} data-testid="tab-quiz" className="gap-2" title={!isModuleCompleted ? "Complete module to unlock" : "Quiz"}>
+            {!isModuleCompleted ? <Lock className="h-4 w-4" /> : <FileQuestion className="h-4 w-4" />}
+            <span className="hidden sm:inline">Quiz</span>
+          </TabsTrigger>
+          <TabsTrigger value="understanding" disabled={!isModuleCompleted} data-testid="tab-understanding" className="gap-2" title={!isModuleCompleted ? "Complete module to unlock" : "Check"}>
+            {!isModuleCompleted ? <Lock className="h-4 w-4" /> : <ClipboardCheck className="h-4 w-4" />}
+            <span className="hidden sm:inline">Check</span>
+          </TabsTrigger>
         </TabsList>
 
+        {/* Content Tab */}
         <TabsContent value="content" className="space-y-6">
-          <Card>
-            <CardContent className="p-8">
-              <div className="prose prose-slate dark:prose-invert max-w-prose mx-auto leading-relaxed">
-                <div dangerouslySetInnerHTML={{ __html: module.content.replace(/\n/g, '<br/>') }} />
+          {/* Header Image */}
+          {module.imageUrl && (
+            <div className="rounded-xl overflow-hidden shadow-md aspect-[21/9] w-full relative group">
+              <img
+                src={module.imageUrl}
+                alt={module.title}
+                className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+                onError={(e) => {
+                  // Hide image parent on error
+                  e.currentTarget.parentElement!.style.display = 'none';
+                }}
+              />
+            </div>
+          )}
+
+          {/* Summary Card */}
+          <Card className="bg-primary/5 border-primary/20">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-lg flex items-center gap-2">
+                <BookOpen className="h-5 w-5" />
+                Module Overview
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm text-muted-foreground leading-relaxed">
+                {contentSummary}
+              </p>
+              <div className="flex items-center gap-4 mt-4 text-sm">
+                <span>{totalPages} pages</span>
+                <span>•</span>
+                <span>{module.estimatedMinutes} min read</span>
+                <span>•</span>
+                <span className="text-primary font-medium">{pagesRead.size}/{totalPages} pages read</span>
               </div>
             </CardContent>
           </Card>
 
-          <div className="flex justify-between items-center">
+          {/* Page Navigation Header with Audio Controls */}
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-medium">
+              Page {currentPageIndex + 1} of {totalPages}
+            </span>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className={`h-8 w-8 p-0 ${isPlaying ? 'text-primary border-primary' : ''}`}
+                onClick={toggleSpeech}
+                title={isPlaying ? "Pause" : "Listen to page"}
+              >
+                {isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+              </Button>
+              {isPlaying && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive"
+                  onClick={stopSpeech}
+                  title="Stop"
+                >
+                  <VolumeX className="h-4 w-4" />
+                </Button>
+              )}
+
+              {allPagesRead && (
+                <Badge className="bg-emerald-500 ml-2">
+                  <CheckCircle2 className="h-3 w-3 mr-1" />
+                  All pages read
+                </Badge>
+              )}
+            </div>
+          </div>
+
+          {/* Content Card */}
+          <Card>
+            <CardContent className="p-6 md:p-8">
+              <div className="prose prose-slate dark:prose-invert max-w-none leading-relaxed">
+                <ReactMarkdown>
+                  {contentPages[currentPageIndex] || ""}
+                </ReactMarkdown>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Page Navigation */}
+          <div className="flex items-center justify-between">
             <Button
               variant="outline"
-              onClick={() => updateProgressMutation.mutate({ progressPercent: Math.min(progressPercent + 25, 100) })}
-              data-testid="button-mark-progress"
+              onClick={prevPage}
+              disabled={currentPageIndex === 0}
             >
-              Mark as Read
+              <ChevronLeft className="h-4 w-4 mr-1" />
+              Previous
             </Button>
-            <Button
-              onClick={handleCompleteModule}
-              disabled={userProgress?.completed}
-              data-testid="button-complete"
-            >
-              {userProgress?.completed ? (
-                <>
-                  <CheckCircle2 className="mr-2 h-4 w-4" />
-                  Completed
-                </>
-              ) : (
-                "Complete Module"
-              )}
-            </Button>
+
+            <div className="flex items-center gap-1">
+              {Array.from({ length: Math.min(totalPages, 10) }, (_, i) => (
+                <Button
+                  key={i}
+                  variant={currentPageIndex === i ? "default" : pagesRead.has(i) ? "secondary" : "outline"}
+                  size="sm"
+                  onClick={() => setCurrentPageIndex(i)}
+                  className="w-8 h-8 p-0"
+                >
+                  {i + 1}
+                </Button>
+              ))}
+              {totalPages > 10 && <span className="text-muted-foreground">...</span>}
+            </div>
+
+            {currentPageIndex < totalPages - 1 ? (
+              <Button onClick={nextPage}>
+                Next
+                <ChevronRight className="h-4 w-4 ml-1" />
+              </Button>
+            ) : userProgress?.completed && nextModule ? (
+              <Button
+                onClick={() => setLocation(`/learn/${nextModule.id}`)}
+                className="bg-primary hover:bg-primary/90"
+              >
+                Next Module
+                <SkipForward className="ml-2 h-4 w-4" />
+              </Button>
+            ) : (
+              <Button
+                onClick={handleCompleteModule}
+                disabled={userProgress?.completed}
+                className="bg-emerald-500 hover:bg-emerald-600"
+              >
+                {userProgress?.completed ? (
+                  <>
+                    <CheckCircle2 className="mr-2 h-4 w-4" />
+                    Completed
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 className="mr-2 h-4 w-4" />
+                    Complete Module
+                  </>
+                )}
+              </Button>
+            )}
+          </div>
+
+          {/* Reading Progress */}
+          <div className="space-y-2">
+            <div className="flex justify-between text-sm">
+              <span className="text-muted-foreground">Reading progress</span>
+              <span className="font-medium">{readingProgress}%</span>
+            </div>
+            <Progress value={readingProgress} className="h-2" />
           </div>
         </TabsContent>
 
+        {/* Flashcards Tab */}
         <TabsContent value="flashcards" className="space-y-6">
           {flashcardsLoading ? (
             <Skeleton className="h-96" />
           ) : !flashcards || flashcards.length === 0 ? (
             <Card className="p-12 text-center">
-              <p className="text-muted-foreground">No flashcards available for this module yet.</p>
+              <Brain className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
+              <h3 className="text-lg font-semibold mb-2">No flashcards yet</h3>
+              <p className="text-muted-foreground mb-6">
+                Generate flashcards based on this module's content to help you study.
+              </p>
+              <Button
+                onClick={() => generateFlashcardsMutation.mutate()}
+                disabled={isGeneratingFlashcards}
+                className="gap-2"
+              >
+                {isGeneratingFlashcards ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Generating...
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="h-4 w-4" />
+                    Generate Flashcards
+                  </>
+                )}
+              </Button>
             </Card>
           ) : (
             <div className="space-y-4">
@@ -208,11 +591,14 @@ export default function Learn() {
               </div>
 
               <Card
-                className="min-h-64 flex items-center justify-center cursor-pointer hover-elevate active-elevate-2"
+                className="min-h-64 flex items-center justify-center cursor-pointer hover:shadow-lg transition-shadow"
                 onClick={() => setShowAnswer(!showAnswer)}
                 data-testid="flashcard"
               >
                 <CardContent className="p-12 text-center">
+                  <Badge variant="outline" className="mb-4">
+                    {showAnswer ? "Answer" : "Question"}
+                  </Badge>
                   <p className="text-xl font-medium mb-4">
                     {showAnswer ? currentFlashcard?.answer : currentFlashcard?.question}
                   </p>
@@ -228,23 +614,26 @@ export default function Learn() {
                     variant="outline"
                     onClick={() => handleFlashcardResponse(false)}
                     data-testid="button-incorrect"
+                    className="flex-1 max-w-32"
                   >
                     Need Review
                   </Button>
                   <Button
                     onClick={() => handleFlashcardResponse(true)}
                     data-testid="button-correct"
+                    className="flex-1 max-w-32 bg-emerald-500 hover:bg-emerald-600"
                   >
                     Got It!
                   </Button>
                 </div>
               )}
 
-              <Progress value={((currentFlashcardIndex + 1) / flashcards.length) * 100} className="h-1" />
+              <Progress value={((currentFlashcardIndex + 1) / flashcards.length) * 100} className="h-2" />
             </div>
           )}
         </TabsContent>
 
+        {/* Quiz Tab */}
         <TabsContent value="quiz" className="space-y-6">
           {assessmentsLoading ? (
             <Skeleton className="h-96" />
@@ -256,16 +645,20 @@ export default function Learn() {
                   title: "Quiz Completed!",
                   description: `You scored ${score}%. Great job!`,
                 });
-                // Optionally mark progress here
               }}
             />
           ) : (
             <Card className="p-12 text-center">
-              <p className="text-muted-foreground">No quiz available for this module yet.</p>
+              <FileQuestion className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
+              <h3 className="text-lg font-semibold mb-2">No quiz available</h3>
+              <p className="text-muted-foreground">
+                A quiz for this module hasn't been created yet.
+              </p>
             </Card>
           )}
         </TabsContent>
 
+        {/* Understanding Check Tab */}
         <TabsContent value="understanding" className="space-y-6">
           {assessmentsLoading ? (
             <Skeleton className="h-96" />

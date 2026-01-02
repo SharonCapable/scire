@@ -60,7 +60,7 @@ export function AuthModal() {
             await signIn.authenticateWithRedirect({
                 strategy: "oauth_google",
                 redirectUrl: `${window.location.origin}/sso-callback`,
-                redirectUrlComplete: `${window.location.origin}/`,
+                redirectUrlComplete: `${window.location.origin}/dashboard`,
             });
         } catch (error: any) {
             console.error("Google sign-in error:", error);
@@ -82,7 +82,7 @@ export function AuthModal() {
             await signUp.authenticateWithRedirect({
                 strategy: "oauth_google",
                 redirectUrl: `${window.location.origin}/sso-callback`,
-                redirectUrlComplete: `${window.location.origin}/`,
+                redirectUrlComplete: `${window.location.origin}/onboarding`,
             });
         } catch (error: any) {
             console.error("Google sign-up error:", error);
@@ -221,8 +221,8 @@ export function AuthModal() {
                                                 showOptionalFields: false,
                                             },
                                         }}
-                                        routing="hash"
-                                        afterSignInUrl="/"
+                                        routing="virtual"
+                                        fallbackRedirectUrl="/"
                                     />
                                 ) : (
                                     <SignUp
@@ -252,8 +252,8 @@ export function AuthModal() {
                                                 showOptionalFields: false,
                                             },
                                         }}
-                                        routing="hash"
-                                        afterSignUpUrl="/"
+                                        routing="virtual"
+                                        fallbackRedirectUrl="/"
                                     />
                                 )}
                             </div>

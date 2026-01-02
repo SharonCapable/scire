@@ -94,6 +94,7 @@ export interface Module {
     tierId: string;
     title: string;
     content: string;
+    imageUrl?: string;
     order: number;
     estimatedMinutes: number;
     createdAt: Timestamp;
@@ -103,6 +104,7 @@ export interface InsertModule {
     tierId: string;
     title: string;
     content: string;
+    imageUrl?: string;
     order: number;
     estimatedMinutes?: number;
 }
@@ -304,4 +306,31 @@ export interface InsertNotification {
         achievementId?: string;
     };
     read?: boolean;
+}
+
+// User Settings types
+export interface UserSettings {
+    id: string;
+    userId: string;
+    // Notification preferences
+    notifyNewCourses: boolean;
+    notifyFlashcardReminders: boolean;
+    notifyAssessmentReminders: boolean;
+    // Frequency: 'daily' | 'weekly' | 'never'
+    flashcardReminderFrequency: 'daily' | 'weekly' | 'never';
+    assessmentReminderFrequency: 'daily' | 'weekly' | 'never';
+    // Preferred time for reminders (24h format, e.g., "09:00")
+    preferredReminderTime?: string;
+    createdAt: Timestamp;
+    updatedAt: Timestamp;
+}
+
+export interface InsertUserSettings {
+    userId: string;
+    notifyNewCourses?: boolean;
+    notifyFlashcardReminders?: boolean;
+    notifyAssessmentReminders?: boolean;
+    flashcardReminderFrequency?: 'daily' | 'weekly' | 'never';
+    assessmentReminderFrequency?: 'daily' | 'weekly' | 'never';
+    preferredReminderTime?: string;
 }

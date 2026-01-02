@@ -1,6 +1,6 @@
 // Script to generate tiers for all courses that don't have them yet
 import { storage } from "./storage";
-import { generateCourseTiers, generateFlashcards } from "./gemini";
+import { generateCourseTiers, generateFlashcards, generateModuleContent } from "./gemini";
 
 async function generateTiersForAllCourses() {
     console.log("Starting tier generation for all courses...\n");
@@ -20,7 +20,8 @@ async function generateTiersForAllCourses() {
         }
 
         try {
-            console.log(`  → Generating tiers with AI...`);
+            console.log(`  → Generating tier outline with AI...`);
+            // Step 1: Generate Outline (Tiers + Module Summaries)
             const tiersData = await generateCourseTiers(course.content, course.title);
 
             const tierLevelOrder: { [key: string]: number } = {
@@ -41,15 +42,38 @@ async function generateTiersForAllCourses() {
                 });
 
                 for (let i = 0; i < tierData.modules.length; i++) {
-                    const moduleData = tierData.modules[i];
-                    console.log(`      → Creating module ${i + 1}/${tierData.modules.length}: ${moduleData.title}`);
+                    const moduleSummary = tierData.modules[i];
+                    console.log(`      → Generating content for module ${i + 1}/${tierData.modules.length}: ${moduleSummary.title}`);
+
+                    // Step 2: Generate Full Content + Image Keyword
+                    let moduleContentData;
+                    try {
+                        moduleContentData = await generateModuleContent(
+                            moduleSummary.title,
+                            moduleSummary.summary || "Comprehensive educational module",
+                            course.title
+                        );
+                    } catch (err) {
+                        console.error("        ✗ Failed to generate content, retrying...", err);
+                        // Retry once
+                        moduleContentData = await generateModuleContent(
+                            moduleSummary.title,
+                            moduleSummary.summary || "Comprehensive educational module",
+                            course.title
+                        );
+                    }
+
+                    // Generate Image URL from keyword
+                    const imageKeyword = moduleContentData.imageKeyword || moduleSummary.title;
+                    const imageUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(imageKeyword)}?width=800&height=400&nologo=true`;
 
                     const module = await storage.createModule({
                         tierId: tier.id,
-                        title: moduleData.title,
-                        content: moduleData.content,
+                        title: moduleSummary.title,
+                        content: moduleContentData.content,
+                        imageUrl: imageUrl,
                         order: i,
-                        estimatedMinutes: moduleData.estimatedMinutes || 15,
+                        estimatedMinutes: moduleSummary.estimatedMinutes || 20,
                     });
 
                     console.log(`        → Generating flashcards...`);

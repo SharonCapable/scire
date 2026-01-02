@@ -22,13 +22,9 @@ Course Title: ${courseTitle}
 Content:
 ${courseContent.slice(0, 4000)}
 
-For each tier, create 3-5 modules. Each module should:
-- Have a clear title
-- Include comprehensive, in-depth educational content (at least 800 words).
-- Structure the content with clear headings (Markdown h2/h3), subheadings, and bullet points.
-- Include real-world examples, code snippets (if applicable), and detailed explanations.
-- Explain concepts thoroughly as if teaching a full university lecture.
-- Take approximately 20-40 minutes to complete
+For each tier, create 5-8 modules. Each module should:
+- Have a clear, engaging title
+- include a detailed summary of what will be covered
 - Build progressively on previous modules
 
 Return the response in JSON format with this structure:
@@ -41,7 +37,7 @@ Return the response in JSON format with this structure:
       "modules": [
         {
           "title": "string",
-          "content": "string",
+          "summary": "string",
           "estimatedMinutes": number
         }
       ]
@@ -73,7 +69,7 @@ export async function generateFlashcards(moduleContent: string, moduleTitle: str
   const prompt = `Create ${count} flashcards for the following educational module.
 
 Module: ${moduleTitle}
-Content: ${moduleContent}
+Content: ${moduleContent.slice(0, 6000)}
 
 Each flashcard should test understanding of key concepts. Return in JSON format:
 {
@@ -189,7 +185,7 @@ export async function generateQuiz(moduleContent: string, moduleTitle: string) {
   const prompt = `Create a multiple-choice quiz with 5 questions for this module.
 
 Module: ${moduleTitle}
-Content: ${moduleContent}
+Content: ${moduleContent.slice(0, 6000)}
 
 Return in JSON format:
 {
@@ -227,7 +223,7 @@ export async function generateUnderstandingPrompt(moduleContent: string, moduleT
   const prompt = `Create a prompt for an open-ended understanding check for this module.
 
 Module: ${moduleTitle}
-Content: ${moduleContent}
+Content: ${moduleContent.slice(0, 4000)}
 
 The prompt should ask the student to explain the core concepts in their own words.
 Also provide a rubric or key points they should cover.
@@ -268,7 +264,7 @@ export async function generateCourseStructure(topic: string, learningGoal: strin
 
   For EACH tier, provide:
   - A clear title and description for the tier.
-  - 3-5 Modules. Each module must have:
+  - EXACTLY 5 Modules. Each module must have:
     - A specific title.
     - A brief summary of what will be covered.
     - Estimated time to complete (in minutes).
@@ -322,13 +318,18 @@ export async function generateModuleContent(moduleTitle: string, moduleSummary: 
   Summary: ${moduleSummary}
 
   Requirements:
-  - At least 800 words.
+  - At least 800 words of HIGH QUALITY educational content.
   - Clear headings (Markdown h2/h3) and structure.
-  - Real-world examples and case studies.
+  - Real-world examples, case studies, and analogies.
   - Detailed explanations of concepts.
   - Engaging and easy to understand.
+  - Also provide a specific, highly detailed visual description to use as an image generation prompt. It should capture the essence of the topic (e.g. "photorealistic close-up of a double helix DNA strand, cinematic lighting" or "modern developer workspace with code on multiple monitors, warm lighting").
 
-  Return the content as a single Markdown string.`;
+  Return strictly in this JSON format:
+  {
+    "content": "markdown string",
+    "imageKeyword": "string"
+  }`;
 
   const result = await model.generateContent({
     contents: [{ role: "user", parts: [{ text: prompt }] }],
@@ -337,9 +338,20 @@ export async function generateModuleContent(moduleTitle: string, moduleSummary: 
       topK: 40,
       topP: 0.95,
       maxOutputTokens: 8192,
-      responseMimeType: "text/plain",
+      responseMimeType: "application/json",
     },
   });
 
-  return result.response.text();
+  const response = result.response;
+  const text = response.text();
+  // Strip markdown code block markers if present
+  const cleanedText = text.replace(/```markdown\n/g, '').replace(/```json\n/g, '').replace(/```/g, '');
+  const data = JSON.parse(cleanedText);
+
+  // Also clean the content field specifically if needed
+  if (data.content) {
+    data.content = data.content.replace(/^```markdown\s*/, '').replace(/^```\s*/, '').replace(/```\s*$/, '');
+  }
+
+  return data;
 }

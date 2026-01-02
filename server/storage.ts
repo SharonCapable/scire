@@ -58,7 +58,12 @@ export interface IStorage {
 
   // User Interest methods
   getUserInterest(userId: string): Promise<UserInterest | undefined>;
+  getAllUserInterests(userId: string): Promise<UserInterest[]>;
   createOrUpdateUserInterest(interest: InsertUserInterest): Promise<UserInterest>;
+
+  // User Settings methods
+  getUserSettings(userId: string): Promise<any | undefined>;
+  updateUserSettings(userId: string, settings: any): Promise<any>;
 
   // Progress methods
   getUserProgress(userId: string, moduleId: string): Promise<UserProgress | undefined>;
@@ -318,10 +323,15 @@ export class FirestoreStorage implements IStorage {
     const snapshot = await db.collection('assessment_submissions')
       .where('userId', '==', userId)
       .where('assessmentId', '==', assessmentId)
-      .orderBy('completedAt', 'desc')
       .get();
 
-    return snapshot.docs.map(doc => doc.data() as UserAssessmentSubmission);
+    const submissions = snapshot.docs.map(doc => doc.data() as UserAssessmentSubmission);
+    // Sort in memory to avoid needing composite index
+    return submissions.sort((a, b) => {
+      const aTime = a.completedAt?.toMillis?.() || 0;
+      const bTime = b.completedAt?.toMillis?.() || 0;
+      return bTime - aTime;
+    });
   }
 
   // User Interest methods
@@ -489,10 +499,15 @@ export class FirestoreStorage implements IStorage {
     const snapshot = await db.collection('understanding_checks')
       .where('userId', '==', userId)
       .where('moduleId', '==', moduleId)
-      .orderBy('createdAt', 'desc')
       .get();
 
-    return snapshot.docs.map(doc => doc.data() as UnderstandingCheck);
+    const checks = snapshot.docs.map(doc => doc.data() as UnderstandingCheck);
+    // Sort in memory to avoid needing composite index
+    return checks.sort((a, b) => {
+      const aTime = a.createdAt?.toMillis?.() || 0;
+      const bTime = b.createdAt?.toMillis?.() || 0;
+      return bTime - aTime;
+    });
   }
 
   // Enrollments
@@ -510,10 +525,15 @@ export class FirestoreStorage implements IStorage {
   async getUserEnrollments(userId: string): Promise<UserCourseEnrollment[]> {
     const snapshot = await db.collection('enrollments')
       .where('userId', '==', userId)
-      .orderBy('enrolledAt', 'desc')
       .get();
 
-    return snapshot.docs.map(doc => doc.data() as UserCourseEnrollment);
+    const enrollments = snapshot.docs.map(doc => doc.data() as UserCourseEnrollment);
+    // Sort in memory to avoid needing composite index
+    return enrollments.sort((a, b) => {
+      const aTime = a.enrolledAt?.toMillis?.() || 0;
+      const bTime = b.enrolledAt?.toMillis?.() || 0;
+      return bTime - aTime;
+    });
   }
 
   async getEnrollment(userId: string, courseId: string): Promise<UserCourseEnrollment | undefined> {
@@ -592,10 +612,14 @@ export class FirestoreStorage implements IStorage {
   async getUserNotifications(userId: string): Promise<Notification[]> {
     const snapshot = await db.collection('notifications')
       .where('userId', '==', userId)
-      .orderBy('createdAt', 'desc')
-      .limit(50)
       .get();
-    return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Notification));
+    const notifications = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Notification));
+    // Sort in memory to avoid needing composite index, then limit
+    return notifications.sort((a, b) => {
+      const aTime = (a.createdAt as any)?.toMillis?.() || 0;
+      const bTime = (b.createdAt as any)?.toMillis?.() || 0;
+      return bTime - aTime;
+    }).slice(0, 50);
   }
 
   async markNotificationRead(id: string): Promise<void> {
@@ -613,6 +637,50 @@ export class FirestoreStorage implements IStorage {
       batch.update(doc.ref, { read: true });
     });
     await batch.commit();
+  }
+
+  // Get all user interests for multiple interests support
+  async getAllUserInterests(userId: string): Promise<UserInterest[]> {
+    const snapshot = await db.collection('user_interests')
+      .where('userId', '==', userId)
+      .get();
+    const interests = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as UserInterest));
+    // Sort in memory to avoid needing composite index
+    return interests.sort((a, b) => {
+      const aTime = (a.createdAt as any)?.toMillis?.() || 0;
+      const bTime = (b.createdAt as any)?.toMillis?.() || 0;
+      return bTime - aTime;
+    });
+  }
+
+  // User Settings methods
+  async getUserSettings(userId: string): Promise<any | undefined> {
+    const docRef = db.collection('userSettings').doc(userId);
+    const doc = await docRef.get();
+    if (!doc.exists) return undefined;
+    return { id: doc.id, ...doc.data() };
+  }
+
+  async updateUserSettings(userId: string, settings: any): Promise<any> {
+    const docRef = db.collection('userSettings').doc(userId);
+    const doc = await docRef.get();
+
+    if (doc.exists) {
+      await docRef.update({
+        ...settings,
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+    } else {
+      await docRef.set({
+        userId,
+        ...settings,
+        createdAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+    }
+
+    const updated = await docRef.get();
+    return { id: updated.id, ...updated.data() };
   }
 }
 

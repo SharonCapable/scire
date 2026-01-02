@@ -43,6 +43,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             if (!isLoaded || !isUserLoaded) return;
 
             if (isSignedIn && clerkUser) {
+                // If we already have the user and the ID matches, skip sync
+                if (user && user.id === clerkUser.id) {
+                    setIsLoading(false);
+                    return;
+                }
+
                 try {
                     const token = await getToken();
                     const response = await fetch("/api/auth/sync", {
@@ -56,23 +62,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                     if (response.ok) {
                         const data = await response.json();
                         const syncedUser = data.user;
-                        setUser(syncedUser);
 
-                        // Close modal on successful auth
-                        setShowAuthModal(false);
+                        // Only update state if data actually changed
+                        if (JSON.stringify(user) !== JSON.stringify(syncedUser)) {
+                            setUser(syncedUser);
 
-                        // Redirect based on onboarding status
-                        // Get current path to avoid unnecessary redirects
-                        const currentPath = window.location.pathname;
+                            // Close modal on successful auth
+                            setShowAuthModal(false);
 
-                        if (!syncedUser.onboardingCompleted && !syncedUser.role) {
-                            // New user - redirect to onboarding
-                            if (currentPath !== "/onboarding") {
-                                setLocation("/onboarding");
-                            }
-                        } else {
-                            // Returning user - redirect to appropriate dashboard if on landing page
-                            if (currentPath === "/" || currentPath === "") {
+                            // Redirect logic only on initial load/login
+                            const currentPath = window.location.pathname;
+                            if (!syncedUser.onboardingCompleted && !syncedUser.role) {
+                                if (currentPath !== "/onboarding") {
+                                    setLocation("/onboarding");
+                                }
+                            } else if (currentPath === "/" || currentPath === "") {
                                 const targetPath = syncedUser.role === "educator" ? "/admin" : "/dashboard";
                                 setLocation(targetPath);
                             }
@@ -85,15 +89,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                     console.error("Error syncing user:", error);
                     setUser(null);
                 }
-            } else {
-                setUser(null);
+            } else if (!isSignedIn) {
+                if (user) setUser(null);
             }
 
             setIsLoading(false);
         }
 
         syncUser();
-    }, [isLoaded, isUserLoaded, isSignedIn, clerkUser, getToken]);
+    }, [isLoaded, isUserLoaded, isSignedIn, clerkUser?.id, getToken]);
 
     const logout = async () => {
         try {

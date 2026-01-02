@@ -708,6 +708,7 @@ function LandingHeader() {
 
                 <div className="flex items-center gap-4">
                     <Button
+                        type="button"
                         variant="ghost"
                         className="font-medium"
                         onClick={handleSignIn}
@@ -715,6 +716,7 @@ function LandingHeader() {
                         Sign In
                     </Button>
                     <Button
+                        type="button"
                         className="font-medium gap-2"
                         onClick={handleGetStarted}
                     >

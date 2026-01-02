@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { useRoute, useLocation } from "wouter";
+import { useParams, useLocation } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -30,15 +30,21 @@ interface CourseWithDetails extends Course {
 }
 
 export default function CourseDetail() {
-  const [, params] = useRoute("/course/:id");
+  const params = useParams<{ id: string }>();
   const [, setLocation] = useLocation();
   const { toast } = useToast();
-  const courseId = params?.id;
+
+  // Get courseId from params, or extract from URL as fallback
+  let courseId: string | undefined = params.id;
+  if (!courseId) {
+    const pathMatch = window.location.pathname.match(/\/course\/(.+)/);
+    courseId = pathMatch ? pathMatch[1] : undefined;
+  }
 
   const [generatingTier, setGeneratingTier] = useState<string | null>(null);
   const [generationStep, setGenerationStep] = useState(0);
 
-  const { data: course, isLoading } = useQuery<CourseWithDetails>({
+  const { data: course, isLoading, error, isError } = useQuery<CourseWithDetails>({
     queryKey: ["/api/courses", courseId],
     enabled: !!courseId,
   });
@@ -47,6 +53,7 @@ export default function CourseDetail() {
     queryKey: ["/api/enrollments", courseId],
     enabled: !!courseId,
   });
+
 
   const { data: progress } = useQuery<UserProgress[]>({
     queryKey: [`/api/progress/${courseId}/details`],
@@ -77,10 +84,34 @@ export default function CourseDetail() {
       }, 3000);
 
       try {
-        const result = await apiRequest("POST", `/api/courses/${courseId}/generate-tier/${tierLevel}`);
-        clearInterval(stepInterval);
-        setGenerationStep(5);
-        return result;
+        await apiRequest("POST", `/api/courses/${courseId}/generate-tier/${tierLevel}`);
+
+        // Poll for completion
+        let retries = 0;
+        const maxRetries = 60; // Wait up to 3 minutes (60 * 3s)
+
+        while (retries < maxRetries) {
+          await new Promise(resolve => setTimeout(resolve, 3000));
+
+          // Force fetch latest course data
+          await queryClient.invalidateQueries({ queryKey: ["/api/courses", courseId] });
+          const updatedCourse = await queryClient.fetchQuery<CourseWithDetails>({
+            queryKey: ["/api/courses", courseId],
+            staleTime: 0
+          });
+
+          const tier = updatedCourse.tiers.find((t: any) => t.level === tierLevel);
+          // Check if modules are generated
+          if (tier && tier.modules && tier.modules.length > 0) {
+            clearInterval(stepInterval);
+            setGenerationStep(5);
+            return updatedCourse;
+          }
+
+          retries++;
+        }
+
+        throw new Error("Generation timed out. Please refresh the page in a few minutes.");
       } catch (error) {
         clearInterval(stepInterval);
         throw error;
@@ -118,6 +149,16 @@ export default function CourseDetail() {
     );
   }
 
+  if (isError) {
+    return (
+      <div className="max-w-4xl mx-auto px-4 py-8 text-center">
+        <h2 className="text-2xl font-bold mb-2 text-destructive">Error loading course</h2>
+        <p className="text-muted-foreground mb-4">{(error as Error)?.message || "Something went wrong"}</p>
+        <Button onClick={() => setLocation("/courses")}>Browse Courses</Button>
+      </div>
+    );
+  }
+
   if (!course) {
     return (
       <div className="max-w-4xl mx-auto px-4 py-8 text-center">
@@ -147,7 +188,9 @@ export default function CourseDetail() {
     // Can only generate if previous tier is completed
     if (index === 0) return true;
     const prevTier = sortedTiers[index - 1];
-    return prevTier?.generationStatus === 'completed' || (prevTier?.modules?.length > 0);
+    // Check if the user has completed all content in the previous tier
+    const progress = getTierProgress(prevTier);
+    return progress === 100;
   };
 
   const isTierLocked = (tier: any) => {
@@ -379,8 +422,8 @@ export default function CourseDetail() {
                                       <div
                                         key={module.id}
                                         className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${isCompleted
-                                            ? 'bg-emerald-500/5 border-emerald-500/20'
-                                            : 'hover:bg-muted/50'
+                                          ? 'bg-emerald-500/5 border-emerald-500/20'
+                                          : 'hover:bg-muted/50'
                                           }`}
                                         onClick={() => enrollment && setLocation(`/learn/${module.id}`)}
                                       >
