@@ -139,9 +139,13 @@ export function AuthModal() {
                                     initial={{ scale: 0 }}
                                     animate={{ scale: 1 }}
                                     transition={{ delay: 0.1, type: "spring", bounce: 0.5 }}
-                                    className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-br from-primary to-primary/80 mb-4 shadow-lg shadow-primary/25"
+                                    className="inline-flex items-center justify-center w-16 h-16 rounded-2xl overflow-hidden bg-gradient-to-br from-primary to-primary/80 mb-4 shadow-lg shadow-primary/25"
                                 >
-                                    <span className="text-2xl font-bold text-primary-foreground">S</span>
+                                    <img
+                                        src="/scire-logo.jpeg"
+                                        alt="SCIRE"
+                                        className="w-full h-full object-cover"
+                                    />
                                 </motion.div>
                                 <h2 className="text-2xl font-bold font-heading">
                                     {authMode === "signin" ? "Welcome back" : "Create account"}

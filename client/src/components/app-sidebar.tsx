@@ -76,8 +76,16 @@ export function AppSidebar() {
     <Sidebar>
       <SidebarHeader className="p-4 border-b border-sidebar-border">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary to-primary/80 flex items-center justify-center shadow-lg shadow-primary/20">
-            <span className="text-lg font-bold text-primary-foreground">S</span>
+          <div className="w-10 h-10 rounded-xl overflow-hidden bg-gradient-to-br from-primary to-primary/80 flex items-center justify-center shadow-lg shadow-primary/20">
+            <img
+              src="/scire-logo.jpeg"
+              alt="SCIRE"
+              className="w-full h-full object-cover"
+              onError={(e) => {
+                e.currentTarget.style.display = 'none';
+                e.currentTarget.parentElement!.innerHTML = '<span class="text-lg font-bold text-primary-foreground">S</span>';
+              }}
+            />
           </div>
           <div>
             <h2 className="font-bold font-heading text-lg">SCIRE</h2>

@@ -667,8 +667,12 @@ function Footer() {
             <div className="max-w-6xl mx-auto px-6">
                 <div className="flex flex-col md:flex-row justify-between items-center gap-6">
                     <div className="flex items-center gap-2">
-                        <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-primary/80 flex items-center justify-center">
-                            <span className="text-sm font-bold text-primary-foreground">S</span>
+                        <div className="w-8 h-8 rounded-lg overflow-hidden bg-gradient-to-br from-primary to-primary/80 flex items-center justify-center">
+                            <img
+                                src="/scire-logo.jpeg"
+                                alt="SCIRE"
+                                className="w-full h-full object-cover"
+                            />
                         </div>
                         <span className="font-bold font-heading text-xl">SCIRE</span>
                     </div>
@@ -716,8 +720,12 @@ function LandingHeader() {
             <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
                 <Link href="/">
                     <div className="flex items-center gap-2 cursor-pointer">
-                        <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-primary/80 flex items-center justify-center">
-                            <span className="text-sm font-bold text-primary-foreground">S</span>
+                        <div className="w-8 h-8 rounded-lg overflow-hidden bg-gradient-to-br from-primary to-primary/80 flex items-center justify-center">
+                            <img
+                                src="/scire-logo.jpeg"
+                                alt="SCIRE"
+                                className="w-full h-full object-cover"
+                            />
                         </div>
                         <span className="font-bold font-heading text-xl">SCIRE</span>
                     </div>
