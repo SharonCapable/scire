@@ -1,5 +1,6 @@
 import { useRef, useEffect } from "react";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
+import { useAuth as useClerkAuth } from "@clerk/clerk-react";
 import { motion, useScroll, useTransform, useInView, useSpring } from "framer-motion";
 import {
     ArrowRight,
@@ -70,7 +71,9 @@ function FloatingOrbs() {
 
 // Hero section
 function HeroSection() {
-    const { setShowAuthModal, setAuthMode } = useAuth();
+    const { setShowAuthModal, setAuthMode, user } = useAuth();
+    const { isSignedIn } = useClerkAuth();
+    const [, setLocation] = useLocation();
     const ref = useRef(null);
     const { scrollYProgress } = useScroll({
         target: ref,
@@ -81,11 +84,25 @@ function HeroSection() {
     const opacity = useTransform(scrollYProgress, [0, 0.5], [1, 0]);
 
     const handleGetStarted = () => {
+        if (isSignedIn) {
+            if (user) {
+                const targetPath = user.role === "educator" ? "/admin" : "/dashboard";
+                setLocation(targetPath);
+            } else {
+                // If signed in but user data not synced yet, go to dashboard which handles sync/loading
+                setLocation("/dashboard");
+            }
+            return;
+        }
         setAuthMode("signup");
         setShowAuthModal(true);
     };
 
     const handleSignIn = () => {
+        if (isSignedIn) {
+            setLocation("/dashboard");
+            return;
+        }
         setAuthMode("signin");
         setShowAuthModal(true);
     };
