@@ -198,6 +198,10 @@ var FirestoreStorage = class {
     const tiers = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
     return tiers.sort((a, b) => a.order - b.order);
   }
+  async getTier(id) {
+    const doc = await db.collection("tiers").doc(id).get();
+    return doc.exists ? { id: doc.id, ...doc.data() } : void 0;
+  }
   async updateTier(id, data) {
     const docRef = db.collection("tiers").doc(id);
     const doc = await docRef.get();
@@ -1642,6 +1646,17 @@ async function registerRoutes(app3) {
       res.status(500).json({ error: "Failed to fetch modules" });
     }
   });
+  app3.get("/api/tiers/:tierId", async (req, res) => {
+    try {
+      const tier = await storage.getTier(req.params.tierId);
+      if (!tier) {
+        return res.status(404).json({ error: "Tier not found" });
+      }
+      res.json(tier);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch tier" });
+    }
+  });
   app3.get("/api/flashcards/:moduleId", async (req, res) => {
     try {
       const flashcards = await storage.getFlashcardsByModule(req.params.moduleId);
@@ -1964,6 +1979,26 @@ Return ONLY a valid JSON array of flashcards in this exact format, with no addit
       res.json(progress);
     } catch (error) {
       res.status(500).json({ error: "Failed to update progress" });
+    }
+  });
+  app3.post("/api/progress/:moduleId/time", requireAuth, async (req, res) => {
+    try {
+      const userId = req.user.id;
+      const { additionalMinutes } = req.body;
+      if (typeof additionalMinutes !== "number" || additionalMinutes < 0) {
+        return res.status(400).json({ error: "Invalid time value" });
+      }
+      const currentProgress = await storage.getUserProgress(userId, req.params.moduleId);
+      const currentTimeSpent = currentProgress?.timeSpentMinutes || 0;
+      const progress = await storage.updateUserProgress({
+        userId,
+        moduleId: req.params.moduleId,
+        timeSpentMinutes: currentTimeSpent + additionalMinutes
+      });
+      res.json(progress);
+    } catch (error) {
+      console.error("Time tracking error:", error);
+      res.status(500).json({ error: "Failed to update time spent" });
     }
   });
   app3.post("/api/flashcard-progress", requireAuth, async (req, res) => {

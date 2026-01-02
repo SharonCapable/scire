@@ -38,6 +38,7 @@ export interface IStorage {
 
   // Tier methods
   createTier(tier: InsertTier): Promise<Tier>;
+  getTier(id: string): Promise<Tier | undefined>;
   getTiersByCourse(courseId: string): Promise<Tier[]>;
   updateTier(id: string, data: Partial<InsertTier>): Promise<Tier | undefined>;
 
@@ -237,6 +238,11 @@ export class FirestoreStorage implements IStorage {
     const snapshot = await db.collection('tiers').where('courseId', '==', courseId).get();
     const tiers = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Tier));
     return tiers.sort((a, b) => a.order - b.order);
+  }
+
+  async getTier(id: string): Promise<Tier | undefined> {
+    const doc = await db.collection('tiers').doc(id).get();
+    return doc.exists ? ({ id: doc.id, ...doc.data() } as Tier) : undefined;
   }
 
   async updateTier(id: string, data: Partial<InsertTier>): Promise<Tier | undefined> {

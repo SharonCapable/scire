@@ -170,6 +170,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Get tier by ID
+  app.get("/api/tiers/:tierId", async (req, res) => {
+    try {
+      const tier = await storage.getTier(req.params.tierId);
+      if (!tier) {
+        return res.status(404).json({ error: "Tier not found" });
+      }
+      res.json(tier);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch tier" });
+    }
+  });
+
   app.get("/api/flashcards/:moduleId", async (req, res) => {
     try {
       const flashcards = await storage.getFlashcardsByModule(req.params.moduleId);
@@ -567,6 +580,34 @@ Return ONLY a valid JSON array of flashcards in this exact format, with no addit
       res.json(progress);
     } catch (error) {
       res.status(500).json({ error: "Failed to update progress" });
+    }
+  });
+
+  // Track time spent on a module
+  app.post("/api/progress/:moduleId/time", requireAuth, async (req, res) => {
+    try {
+      const userId = req.user!.id;
+      const { additionalMinutes } = req.body;
+
+      if (typeof additionalMinutes !== 'number' || additionalMinutes < 0) {
+        return res.status(400).json({ error: "Invalid time value" });
+      }
+
+      // Get current progress
+      const currentProgress = await storage.getUserProgress(userId, req.params.moduleId);
+      const currentTimeSpent = currentProgress?.timeSpentMinutes || 0;
+
+      // Update with additional time
+      const progress = await storage.updateUserProgress({
+        userId,
+        moduleId: req.params.moduleId,
+        timeSpentMinutes: currentTimeSpent + additionalMinutes,
+      });
+
+      res.json(progress);
+    } catch (error) {
+      console.error("Time tracking error:", error);
+      res.status(500).json({ error: "Failed to update time spent" });
     }
   });
 

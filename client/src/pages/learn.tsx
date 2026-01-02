@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useParams, useLocation } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -144,10 +144,101 @@ export default function Learn() {
   const [showTierComplete, setShowTierComplete] = useState(false);
   const [tierCompleteShown, setTierCompleteShown] = useState(false);
 
+  // Time tracking
+  const startTimeRef = useRef<number>(Date.now());
+  const lastSyncTimeRef = useRef<number>(0);
+  const [timeSpentMinutes, setTimeSpentMinutes] = useState(0);
+
   const { data: module, isLoading: moduleLoading } = useQuery<Module>({
     queryKey: ["/api/modules", moduleId],
     enabled: !!moduleId,
   });
+
+  // Time tracking - sync every 30 seconds, pause when inactive
+  useEffect(() => {
+    if (!moduleId) return;
+
+    // Reset start time when module changes
+    startTimeRef.current = Date.now();
+    lastSyncTimeRef.current = 0;
+    let lastActiveTime = Date.now();
+    let isTabActive = true;
+    const INACTIVITY_THRESHOLD = 5 * 60 * 1000; // 5 minutes
+
+    const syncTimeSpent = async () => {
+      // Don't count time if tab was inactive for more than 5 minutes
+      if (!isTabActive) return;
+
+      const currentTime = Date.now();
+      const timeSinceLastActivity = currentTime - lastActiveTime;
+
+      // If more than 5 minutes since last activity, reset the timer
+      if (timeSinceLastActivity > INACTIVITY_THRESHOLD) {
+        startTimeRef.current = currentTime;
+        lastSyncTimeRef.current = 0;
+        return;
+      }
+
+      const minutesElapsed = Math.floor((currentTime - startTimeRef.current) / 60000);
+
+      // Only sync if we've spent at least 1 minute since last sync
+      if (minutesElapsed > lastSyncTimeRef.current) {
+        const additionalMinutes = minutesElapsed - lastSyncTimeRef.current;
+        lastSyncTimeRef.current = minutesElapsed;
+        setTimeSpentMinutes(minutesElapsed);
+
+        try {
+          await apiRequest("POST", `/api/progress/${moduleId}/time`, {
+            additionalMinutes
+          });
+        } catch (error) {
+          console.error("Failed to sync time:", error);
+        }
+      }
+    };
+
+    // Track user activity
+    const handleActivity = () => {
+      lastActiveTime = Date.now();
+    };
+
+    // Sync every 30 seconds
+    const interval = setInterval(syncTimeSpent, 30000);
+
+    // Handle tab visibility changes
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        isTabActive = false;
+        syncTimeSpent(); // Sync before going inactive
+      } else {
+        isTabActive = true;
+        // If returning after being away for a while, reset the timer
+        const timeSinceLastActivity = Date.now() - lastActiveTime;
+        if (timeSinceLastActivity > INACTIVITY_THRESHOLD) {
+          startTimeRef.current = Date.now();
+          lastSyncTimeRef.current = 0;
+        }
+        lastActiveTime = Date.now();
+      }
+    };
+
+    // Listen for activity
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    document.addEventListener("mousemove", handleActivity);
+    document.addEventListener("keydown", handleActivity);
+    document.addEventListener("scroll", handleActivity);
+
+    // Cleanup
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      document.removeEventListener("mousemove", handleActivity);
+      document.removeEventListener("keydown", handleActivity);
+      document.removeEventListener("scroll", handleActivity);
+      // Final sync on unmount
+      syncTimeSpent();
+    };
+  }, [moduleId]);
 
   // Handle TTS cleanup
   useEffect(() => {
